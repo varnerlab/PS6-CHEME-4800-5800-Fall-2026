@@ -1,0 +1,86 @@
+# Alon's regulated feedback (memory) motif.
+# The inducer I activates protein X. Protein X activates genes Y and Z, and proteins Y and Z
+# activate each other's genes. Gene X has no promoter states, so it is always transcribed at its
+# full rate. The promoters of Y and Z are OR gates: X or the partner protein can switch them on.
+#
+# Units: mRNA and protein levels, K, and Vmax_X are per gram dry weight (nmol/gDW and
+# nmol/gDW/min). The inducer I and K_I are concentrations in the medium (µM). Times are in min.
+# One copy per cell is 5.93e-3 nmol/gDW (a cell dry mass of 2.8e-13 gDW).
+#
+# The state order is mRNA X, Y, Z, then protein X, Y, Z.
+
+[metadata]
+description = "Regulated feedback (memory) motif: I activates X; X activates Y and Z; Y and Z activate each other"
+reference = "Alon, Nat. Rev. Genet. 8 (2007), doi:10.1038/nrg2102"
+
+[parameters]
+mRNA_half_life = 2.5      # min
+protein_half_life = 35.0  # min
+doubling_time = 60.0      # min; growth dilutes mRNA and protein at the rate ln 2 / 60 per min
+
+[[genes]]
+name = "X"
+Vmax_X = 8.475e-3  # transcription rate (nmol/gDW/min): one gene copy (5.93e-3 nmol/gDW) makes one transcript per 42-s initiation time
+k_L = 12.0         # translation rate constant (1/min): 4 ribosomes per mRNA, each reading 16.5 amino acids/s along a 330-residue protein
+
+[[genes]]
+name = "Y"
+Vmax_X = 8.475e-3  # transcription rate (nmol/gDW/min), as for gene X
+k_L = 12.0         # translation rate constant (1/min), as for gene X
+
+  [[genes.promoter]]          # RNA polymerase bound alone: a small leak of transcription
+  W = 0.005
+  active = true
+
+  [[genes.promoter]]          # protein X bound: transcription runs
+  W = 0.5
+  active = true
+
+    [[genes.promoter.bound]]
+    regulator = "X"
+    K = 10.0                  # half-binding level of the available X (nmol/gDW)
+    n = 2                     # binding order
+    inducer = "I"             # inducer I sets the fraction of X that can bind
+    inducer_effect = "activates"
+    K_I = 10.0                # half of X carries the inducer at I = 10 µM
+    n_I = 1
+
+  [[genes.promoter]]          # protein Z bound: transcription runs
+  W = 10.0
+  active = true
+
+    [[genes.promoter.bound]]
+    regulator = "Z"
+    K = 3.0                   # half-binding level of Z (nmol/gDW)
+    n = 3                     # binding order
+
+[[genes]]
+name = "Z"
+Vmax_X = 8.475e-3  # transcription rate (nmol/gDW/min), as for gene X
+k_L = 12.0         # translation rate constant (1/min), as for gene X
+
+  [[genes.promoter]]          # RNA polymerase bound alone: a small leak of transcription
+  W = 0.005
+  active = true
+
+  [[genes.promoter]]          # protein X bound: transcription runs
+  W = 0.5
+  active = true
+
+    [[genes.promoter.bound]]
+    regulator = "X"
+    K = 10.0                  # half-binding level of the available X (nmol/gDW)
+    n = 2                     # binding order
+    inducer = "I"             # inducer I sets the fraction of X that can bind
+    inducer_effect = "activates"
+    K_I = 10.0                # half of X carries the inducer at I = 10 µM
+    n_I = 1
+
+  [[genes.promoter]]          # protein Y bound: transcription runs
+  W = 10.0
+  active = true
+
+    [[genes.promoter.bound]]
+    regulator = "Y"
+    K = 3.0                   # half-binding level of Y (nmol/gDW)
+    n = 3                     # binding order
