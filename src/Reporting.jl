@@ -342,7 +342,7 @@ function write_memory(directory, assignment, memory, no_loop, low, middle)
     # The table, with one row per minute -
     per_minute = round(Int64, 1.0 / MAIN_STEP); # steps in one minute
     io = open(joinpath(directory, "memory.csv"), "w");
-    println(io, "time_min,inducer_uM,pX_nmol_per_gDW,pY_nmol_per_gDW,pZ_nmol_per_gDW,pY_no_loop_nmol_per_gDW,pZ_no_loop_nmol_per_gDW,pY_short_pulse_nmol_per_gDW,pZ_short_pulse_nmol_per_gDW");
+    println(io, "time_min,long_pulse_inducer_uM,pX_nmol_per_gDW,pY_nmol_per_gDW,pZ_nmol_per_gDW,pY_no_loop_nmol_per_gDW,pZ_no_loop_nmol_per_gDW,pY_short_pulse_nmol_per_gDW,pZ_short_pulse_nmol_per_gDW");
     for k in 1:per_minute:length(long.t)
         @printf(io, "%.0f,%.1f,%.4f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n", long.t[k], assignment.inducer(pulses, long.t[k]),
             long.x[4, k], long.x[5, k], long.x[6, k], cut.x[5, k], cut.x[6, k], short.x[5, k], short.x[6, k]);

@@ -163,7 +163,7 @@ main results, and writes these files to the `outputs/` directory:
 | `steady-states.csv` | The protein levels at the low, middle, and high states, and the largest real part of the eigenvalues at each state. A negative value means the state is stable. |
 | `memory.csv` | The protein levels every minute from 0 to 900 min in three runs: a 60-min pulse of 5 µM in the memory motif, the same pulse in the circuit with the Y–Z loop cut, and a 10-min pulse of 5 µM in the memory motif. |
 | `memory.png` | Protein Y in the three runs of `memory.csv`, with the 60-min pulse shaded and a dashed line at the middle state. |
-| `pulse-threshold.csv` | For each inducer level (2, 5, 10, 20, and 50 µM): the shortest remembered pulse, protein Y at the end of that pulse, the minutes from the end of that pulse until protein Y crosses the middle state, the longest forgotten pulse, and the peak of protein Y after the longest forgotten pulse. |
+| `pulse-threshold.csv` | For each inducer level (2, 5, 10, 20, and 50 µM), the script tries pulses of 1, 2, 3, …, 600 min. The file gives the shortest remembered pulse, protein Y at the end of that pulse, the minutes from the end of that pulse until protein Y crosses the middle state, the longest forgotten pulse, the peak of protein Y after the longest forgotten pulse, and protein Y at the middle state. |
 
 Use these files to answer the two questions in [responses.md](responses.md).
 
@@ -180,7 +180,7 @@ writes `MANIFEST.txt`, a record of your results and files. It also deletes the
 old reports in `outputs/` and, if every test passes, makes new ones as
 `runmotif.jl` does. It does not submit anything.
 
-Zip the whole folder, including `MANIFEST.txt` and `outputs/`, as
+Zip the whole folder, including `MANIFEST.txt` and any reports in `outputs/`, as
 `CHEME-4800-5800-PS6-<netid>.zip` (for example,
 `CHEME-4800-5800-PS6-abc123.zip`) and upload it to Canvas. If some tests still
 fail at the deadline, submit anyway for partial credit. See

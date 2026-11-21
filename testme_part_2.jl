@@ -125,9 +125,10 @@ checks = [
     end,
 
     "pulse edge off the step grid" => () -> begin
-        # With 15-min steps, the step from 60 to 75 min starts inside the pulse, so it sees the inducer -
-        a = simulate(memory, copy(LOW_STATE), [(60.0, 70.0, 5.0)]; Δt = 15.0, T = 900.0);
-        b = simulate(memory, copy(LOW_STATE), [(60.0, 75.0, 5.0)]; Δt = 15.0, T = 900.0);
+        # With 0.1-min steps, the step from 119.9 min sees both pulses and the step from 120 min sees
+        # neither, so the runs match. Times found by adding Δt again and again fall just below 120 min -
+        a = simulate(memory, copy(LOW_STATE), [(60.0, 120.0, 5.0)]; Δt = 0.1, T = 200.0);
+        b = simulate(memory, copy(LOW_STATE), [(60.0, 119.95, 5.0)]; Δt = 0.1, T = 200.0);
 
         a.x == b.x
     end,

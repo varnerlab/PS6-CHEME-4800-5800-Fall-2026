@@ -99,7 +99,7 @@ so they stay off GitHub until the reference solution is released.
 - **Time step (instructor, November 20, 2026).** Every report run uses 0.1 min,
   and the README states it. To keep PS6 short, there is no question about the
   time step and no step-size table. The tests still call `simulate` at steps of
-  0.1 to 15 min, because they check the recursion, not its accuracy.
+  0.1 to 5 min, because they check the recursion, not its accuracy.
 - **Remembered.** A pulse is remembered if protein Y is above the middle steady
   state at 900 min. The middle steady state is found on the line `p_Y = p_Z` by a
   scan and bisection in the supplied code.
