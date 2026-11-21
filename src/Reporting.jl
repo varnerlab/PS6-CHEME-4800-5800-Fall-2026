@@ -1,5 +1,5 @@
 # ----------------------------------------------------------------------------
-# Supplied reports | Run the analyses and write the plots and tables.
+# Supplied reports | Run the analyses and write the plot and the tables.
 # ----------------------------------------------------------------------------
 
 """Supplied analyses, plots, and tables for the PS6 memory motif."""
@@ -132,7 +132,7 @@ end
 """
     rates(assignment, network, x) -> Array{Float64,1}
 
-Return the rate of change of every state at the state `x` with no inducer, from the student's
+Return the rate of change of every concentration at the state `x` with no inducer, from the student's
 `balances!` at time 0.
 """
 function rates(assignment, network, x)
@@ -149,7 +149,7 @@ end
     jacobian(assignment, network, x) -> Array{Float64,2}
 
 Return the Jacobian of the balances at the state `x` with no inducer, by central differences:
-column `c` is the change in the balances per unit change in state `c`.
+column `c` is the change in the balances per unit change in entry `c` of the state.
 """
 function jacobian(assignment, network, x)
 
@@ -204,7 +204,8 @@ function line_state(assignment, network, m)
     γ_m = network.θ_m + network.μ;
     γ_p = network.θ_p + network.μ;
 
-    # mRNA X: gene X binds no regulator, so its transcription rate is the same in every state.
+    # mRNA X: no transcription factor binds the promoter of gene X, so its transcription rate is the
+    # same at every state.
     # With no mRNA X, the mRNA balance of X is that transcription rate -
     dx = rates(assignment, network, zeros(6));
     m_X = dx[1] / γ_m;
@@ -228,7 +229,8 @@ memory motif with `m_Y = m_Z = m`.
 """
 function line_residual(assignment, network, m)
 
-    # The mRNA balance of Y is the loss rate of mRNA times the sustained concentration minus m -
+    # The mRNA balance of Y divided by the loss rate of mRNA: the mRNA concentration of Y that its
+    # transcription sustains, minus m -
     γ_m = network.θ_m + network.μ;
     x = line_state(assignment, network, m);
     dx = rates(assignment, network, x);
@@ -319,8 +321,8 @@ end
 """
     write_steady_states(directory, states)
 
-Write `steady-states.csv`: the protein concentrations and the largest real eigenvalue of each
-steady state.
+Write `steady-states.csv`: the protein concentrations of each steady state, and the largest real
+part of the eigenvalues of the Jacobian at that steady state.
 """
 function write_steady_states(directory, states)
 

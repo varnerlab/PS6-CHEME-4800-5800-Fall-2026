@@ -4,8 +4,8 @@
 
 Load the supplied network code, then the three functions in `src/Compute.jl`. The loader,
 `load_network(path)`, reads a gene network from a TOML file in `data/`. The helpers
-`bound_fraction` and `inducer` return the bound fraction of one regulator and the inducer
-concentration at a given time. Your functions and the reference solution use the
+`bound_fraction` and `inducer` return the bound fraction of one transcription factor and the
+inducer concentration at a given time. Your functions and the reference solution use the
 same supplied code.
 
 The flag `--solution`, passed after a script's filename, is for the instructor: it

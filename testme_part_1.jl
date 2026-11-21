@@ -133,7 +133,7 @@ checks = [
         balances!(dx, x, (network = two, pulses = NO_PULSES), 0.0);
         ok = true;
         for j in 1:2
-            expected = transcription_limit(two, j) - γ_m * x[j];
+            expected = TWO_GENES_TRANSCRIPTION[j] - γ_m * x[j];
             ok = ok && isapprox(dx[j], expected; rtol = 1e-12);
         end
 
@@ -146,7 +146,7 @@ checks = [
         dx = zeros(4);
         balances!(dx, x, (network = two, pulses = NO_PULSES), 0.0);
 
-        isapprox(dx[3], translation_limit(two, 1, x); rtol = 1e-12) && isapprox(dx[4], translation_limit(two, 2, x); rtol = 1e-12)
+        isapprox(dx[3:4], TWO_GENES_TRANSLATION; rtol = 1e-12)
     end,
 
     "inducer read at time t" => () -> begin

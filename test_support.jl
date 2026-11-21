@@ -8,8 +8,9 @@ module PS6Checks
 using ..MemoryMotif; # implementation loaded by the current test suite
 
 export throws_type, all_between, toy_network, memory_network, no_loop_network;
-export TOY_GENES, TWO_GENES, NO_PULSES, X_TEST, transcription_limit, translation_limit;
+export TOY_GENES, TWO_GENES, NO_PULSES, X_TEST;
 export LOW_STATE, STORED_CONTROL, STORED_BALANCES;
+export TWO_GENES_TRANSCRIPTION, TWO_GENES_TRANSLATION, TWO_GENES_STEADY;
 export LONG_PULSE_PY, LONG_PULSE_PY_AT_70_120_200, SHORT_PULSE_PY, NO_LOOP_PY, EDGE_PULSE_PY;
 
 # ----------------------------------------------------------------------------
@@ -39,6 +40,15 @@ const NO_LOOP_PY = 11.087579886408271;
 
 # simulate(memory, LOW_STATE, [(60.25, 60.75, 50.0)]; T = 100.0): p_Y at 100 min -
 const EDGE_PULSE_PY = 12.3847518255152;
+
+# TWO_GENES: the transcription rate of genes A and B at a control variable of 1 (nmol/gDW/min) -
+const TWO_GENES_TRANSCRIPTION = [0.31020546209878924, 0.6204109241975785];
+
+# TWO_GENES: the translation rates of A and B at the state [K_L of A, 3 × K_L of B, 0, 0] (nmol/gDW/min) -
+const TWO_GENES_TRANSLATION = [541.7477925530098, 1625.24337765903];
+
+# TWO_GENES: the steady state, [m_A, m_B, p_A, p_B] (nmol/gDW) -
+const TWO_GENES_STEADY = [2.065531762276581, 4.131063524553162, 2101.9653840033675, 4203.930768006735];
 
 # ----------------------------------------------------------------------------
 # Test inputs
@@ -157,42 +167,6 @@ gene_copy_number = 2.0
 length_of_gene_in_nt = 1500.0
 length_of_protein_in_aa = 200.0
 """;
-
-"""
-    transcription_limit(network, j) -> Float64
-
-Return the transcription rate of gene `j` at a control variable of 1 (nmol/gDW/min), with the
-competition of the other genes for RNA polymerase. An independent copy of the formula, for the tests.
-"""
-function transcription_limit(network, j)
-    gene = network.genes[j]
-    O_X = 0.0
-    for i in 1:length(network.genes)
-        if i != j
-            other = network.genes[i]
-            O_X += (gene.K_X * gene.τ_X) / (other.K_X * other.τ_X) * (1.0 + other.τ_X) * other.G
-        end
-    end
-    return gene.Vmax_X * gene.G / (gene.τ_X * gene.K_X + (1.0 + gene.τ_X) * gene.G + O_X)
-end
-
-"""
-    translation_limit(network, j, x) -> Float64
-
-Return the translation rate of gene `j` at the state `x` (nmol/gDW/min), with the competition of
-the other mRNAs for ribosomes. An independent copy of the formula, for the tests.
-"""
-function translation_limit(network, j, x)
-    gene = network.genes[j]
-    O_L = 0.0
-    for i in 1:length(network.genes)
-        if i != j
-            other = network.genes[i]
-            O_L += (gene.K_L * gene.τ_L) / (other.K_L * other.τ_L) * (1.0 + other.τ_L) * x[i]
-        end
-    end
-    return gene.Vmax_L * x[j] / (gene.τ_L * gene.K_L + (1.0 + gene.τ_L) * x[j] + O_L)
-end
 
 """
     toy_network(text::String) -> MyGeneNetwork

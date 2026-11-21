@@ -39,21 +39,22 @@ has three genes, X, Y, and Z, and one **inducer**, I: the signal molecule.
 - Proteins X, Y, and Z are **transcription factors**: proteins that bind the
   **promoter** of a gene, the DNA region where RNA polymerase starts
   transcription, and change how often the gene is transcribed.
-- Gene X is always transcribed. Only protein X that is bound to the signal molecule (inducer) can bind
-  the promoters of genes Y and Z. Bound protein X activates genes Y and Z.
+- Gene X is always transcribed. Only protein X that is bound to the signal
+  molecule (inducer) can bind the promoters of genes Y and Z. Bound protein X
+  activates genes Y and Z.
 - Protein Y activates gene Z, and protein Z activates gene Y. These two
   activations form the **Y–Z loop**.
 
-We'll model the circuit with six material balances: one for the mRNA
-concentration and one for the protein concentration of each gene. The
-transcription rate of each gene is set by its kinetic limit, the gene
-concentration, the competition of the other genes for RNA polymerase, and the
-value of its **control variable**, a number from `0` to `1`: the probability that
-the gene's promoter is in a state that is able to transcribe the gene to mRNA.
-The translation rate of each mRNA rises and saturates as the mRNA concentration
-rises; it is set by the translation kinetic limit and the competition of the
-other mRNAs for ribosomes. Degradation and dilution remove mRNA and protein.
-We'll solve the material balances with an ODE solver, the `Tsit5` method from the
+We'll model the circuit with six material balances: one for the mRNA concentration
+and one for the protein concentration of each gene. The transcription rate of each
+gene is set by its kinetic limit, the gene concentration, the competition of the
+other genes for RNA polymerase, and the value of its **control variable**, a
+number from `0` to `1`: the probability that the gene's promoter is in an active
+state, a state in which RNA polymerase transcribes the gene. The translation rate
+of each mRNA rises and saturates as the mRNA concentration rises. The translation
+kinetic limit and the competition of the other mRNAs for ribosomes set the
+translation rate. Degradation and dilution remove mRNA and protein. We'll solve
+the material balances with an ODE solver, the `Tsit5` method from the
 OrdinaryDiffEq package.
 
 You will write the control variable of a gene, the material balances, and the
@@ -98,7 +99,7 @@ give the sources of the values.
 | `temperature` | The absolute temperature (K), which sets the weight of each promoter state. |
 | `copies_of_rnap_per_cell`, `transcription_elongation_rate`, `transcription_initiation_time_constant`, `transcription_saturation_constant` | The copies of RNA polymerase per cell, the elongation rate of RNA polymerase (nt/s), the time RNA polymerase takes to start transcription (s), and the transcription saturation constant (µM). |
 | `copies_of_ribosome_per_cell`, `translation_elongation_rate`, `translation_initiation_time_constant`, `translation_saturation_factor`, `average_polysome_number` | The copies of ribosomes per cell, the elongation rate of ribosomes (aa/s), the time a ribosome takes to start translation (s), the translation saturation constant divided by the transcription saturation constant, and the number of ribosomes on each mRNA. |
-| `mRNA_half_life`, `protein_half_life` | The half-life of each mRNA and each protein to degradation (min). |
+| `mRNA_half_life`, `protein_half_life` | The degradation half-life of each mRNA and of each protein (min). |
 | `[inputs.I]`, `initial` | The inducer, and its concentration before the first pulse, `0.0` µM. |
 | `gene_copy_number`, `length_of_gene_in_nt`, `length_of_protein_in_aa` | The copies of a gene per cell, the length of the gene (nt), and the length of its protein (aa). |
 | `dG`, `active` | The Gibbs energy of a promoter state relative to the empty promoter (kJ/mol), and whether RNA polymerase transcribes the gene in that state. |
@@ -145,13 +146,11 @@ Implement in [src/Compute.jl](src/Compute.jl):
    network and the inducer pulses.
 
 Read the description above each function in [src/Compute.jl](src/Compute.jl)
-before you write any code. The description above `control` explains what the
-control variable is, how the promoter states of a gene set it, and works through
-an example for gene Y with numbers you can check. The description above
-`balances!` explains each term of the material balances and says where each value
-is in `network`. Each function body has its steps written for you: write the code
-that each `TODO` comment asks for, then replace the `error(...)` line at the end of
-the function with the return value. Test with:
+before you write any code. Each description explains the model behind the
+function and works through an example for gene Y with numbers you can check. Each
+function body has its steps written for you: write the code that each `TODO`
+comment asks for, then replace the `error(...)` line at the end of the function
+with the return value. Test with:
 
 ```bash
 julia --startup-file=no --project=. testme_part_1.jl
@@ -167,7 +166,7 @@ Implement in [src/Compute.jl](src/Compute.jl):
    `Tsit5` method from the initial state `x0` at time `0` to the final time `T`,
    while the inducer concentration follows `pulses`, and returns the state every
    minute. The inducer concentration jumps at the start and the stop of each
-   pulse, so the solver must stop at those times.
+   pulse, so the solver must land exactly on those times.
 
 The description above `simulate` explains what the ODE solver does, gives the two
 lines that call the solver, explains each solver setting, and says what the solver
@@ -188,12 +187,11 @@ high state. The low and high states are stable, so the memory motif is
 **bistable**. The middle state is unstable: the concentration of protein Y moves
 away from the middle state, toward the low state or toward the high state. Every
 run in `runmotif.jl` starts at the low state of the memory motif at 0 min and ends
-at 900 min, and each pulse of inducer starts at 60 min. Your `simulate` solves
-each run with the solver settings in the description above `simulate`. Genes Y
-and Z have the same parameters and start at the same concentrations, so the
-concentration of protein Y equals the concentration of protein Z, which the
-company measures as fluorescence. A pulse is **remembered** if the concentration
-of protein Y at 900 min is above its concentration at the middle state.
+at 900 min, and each pulse of inducer starts at 60 min. Genes Y and Z have the
+same parameters and start at the same concentrations, so the concentration of
+protein Y equals the concentration of protein Z, which the company measures as
+fluorescence. A pulse is **remembered** if the concentration of protein Y at 900
+min is above its concentration at the middle state.
 
 The script `runmotif.jl` uses your three functions to run the analyses, prints the
 main results, and writes these files to the `outputs/` directory:
@@ -247,4 +245,5 @@ Hall/CRC, chapter 5, "Positive Feedback, Bistability and Memory"**
 Reviews Genetics, 8(6), 450–461**
 ([DOI: 10.1038/nrg2102](https://doi.org/10.1038/nrg2102)).
 
-The [data notes](data/README.md) give the sources of the parameter values. The company and its sensor are made up for this problem set.
+The [data notes](data/README.md) give the sources of the parameter values. The
+company and its sensor are made up for this problem set.

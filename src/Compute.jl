@@ -1,12 +1,12 @@
 # Student implementation | Complete the three functions in Parts 1 and 2.
 # Already written for you: Network.jl reads a network file with load_network(path) and holds
-# bound_fraction and inducer; Reporting.jl runs the analyses and writes the plots and tables.
+# bound_fraction and inducer; Reporting.jl runs the analyses and writes the plot and the tables.
 
 # Do not change the function names, arguments, or return types.
-# Read the description above each function first: it explains the model behind the function,
-# gives the formula and a worked example, and says where each value is in the code. Each function
-# body has its steps written for you. Write the code that each TODO comment asks for, then replace
-# the error(...) line at the end of the function with the return value.
+# Read the description above each function first: it explains the model behind the function and
+# works through an example. Each function body has its steps written for you. Write the code that
+# each TODO comment asks for, then replace the error(...) line at the end of the function with the
+# return value.
 # The state x lists the mRNA concentrations of the N genes, then their protein concentrations,
 # in nmol/gDW. For the memory motif, x = [m_X, m_Y, m_Z, p_X, p_Y, p_Z]. The inducer I is in µM,
 # and time is in min.
@@ -21,10 +21,10 @@
 Compute the control variable ū_j of gene `j` at the state `x` and the inducer concentration `I`.
 
 ### What the control variable is
-RNA polymerase transcribes gene `j` only when the promoter of gene `j` is in a state that is able
-to transcribe the gene to mRNA. Transcription factors bind and leave the promoter much faster than
-the mRNA and protein concentrations change, so the model uses the probability of each promoter
-state at the current state `x`. The control variable ū_j is the probability that the promoter of
+RNA polymerase transcribes gene `j` only when the promoter of gene `j` is in an active state.
+Transcription factors bind and leave the promoter much faster than the mRNA and protein
+concentrations change, so the model uses the probability of each promoter state at the current
+state `x`. The control variable ū_j is the probability that the promoter of
 gene `j` is in an active state: a number from 0 to 1. In `balances!`, the transcription rate of
 gene `j` is its transcription rate at a control variable of 1, times ū_j.
 
@@ -129,7 +129,7 @@ function control(network::MyGeneNetwork, j::Int64, x::Array{Float64,1}, I::Float
     end
 
     # Step 4: the control variable is active_weight / total_weight.
-    # TODO: replace the next line with the return of the control variable.
+    # TODO: replace the next line with: return active_weight / total_weight;
     error("Complete control in src/Compute.jl");
 end
 
@@ -165,8 +165,8 @@ variable of 1, which is the rate if the promoter of gene j were always in an act
 - `G` is the gene concentration, and `K_X` is the transcription saturation constant.
 - `τ_X` is the transcription time constant: the time RNA polymerase takes to start transcription,
   divided by the time it takes to transcribe the gene.
-- `O_X` describes the competition of the other genes for RNA polymerase. Each other gene i adds
-  one term, where the subscript j marks a value of gene j and the subscript i a value of gene i:
+- `O_X` accounts for the competition of the other genes for RNA polymerase. It has one term for
+  each other gene i. A subscript j marks a value of gene j, and a subscript i a value of gene i:
 
       O_X = the sum over i ≠ j of (K_X,j × τ_X,j) / (K_X,i × τ_X,i) × (1 + τ_X,i) × G_i
 
@@ -183,9 +183,9 @@ gene j is in an active state:
 
     transcription rate of gene j = r_X,j × ū_j,   with ū_j = control(network, j, x, I)
 
-The control variable depends on the inducer concentration I at the time t. Compute
-`I = inducer(pulses, t)` at the time `t` that the solver passes in, so that the transcription
-rate follows the inducer pulses.
+The control variable depends on the inducer concentration I at the time t. Step 2 of the
+function body computes `I = inducer(pulses, t)` for you, so that the transcription rate follows
+the inducer pulses.
 
 ### 2. The translation rate
 The mRNA of gene j is translated into protein at the rate
@@ -198,8 +198,8 @@ where m_j is the mRNA concentration of gene j.
   concentration, the elongation rate of ribosomes, the length of the protein, and the number of
   ribosomes on each mRNA.
 - `K_L` is the translation saturation constant, and `τ_L` is the translation time constant.
-- `O_L` describes the competition of the other mRNAs for ribosomes. Each other gene i adds one
-  term, with the mRNA concentration m_i of gene i:
+- `O_L` accounts for the competition of the other mRNAs for ribosomes. It has one term for each
+  other gene i, with the mRNA concentration m_i of gene i:
 
       O_L = the sum over i ≠ j of (K_L,j × τ_L,j) / (K_L,i × τ_L,i) × (1 + τ_L,i) × m_i
 
@@ -426,12 +426,13 @@ The first line describes the problem:
 
 The second line solves the problem:
 - `Tsit5()`: the method that the solver uses for each step.
-- `tstops = stops`: a list of times at which the solver must stop. The inducer concentration jumps
-  at the start and at the stop of each pulse, and a solver that steps over a jump can miss a short
-  pulse. So `stops` lists the start and the stop of each pulse, if that time is between 0 and `T`.
+- `tstops = stops`: a list of times that the solver must land on exactly. The inducer
+  concentration jumps at the start and at the stop of each pulse, and a solver that steps over a
+  jump can miss a short pulse. So `stops` lists the start and the stop of each pulse, if that time
+  is between 0 and `T`.
 - `saveat = 1.0`: save the state every minute.
-- `reltol = 1e-8` and `abstol = 1e-12`: how small the error of each step must be, relative to the
-  concentration and in nmol/gDW.
+- `reltol = 1e-8` and `abstol = 1e-12`: the largest error allowed in each step, relative to each
+  concentration (`reltol`) and in nmol/gDW (`abstol`).
 
 ### What the solver returns
 - `solution.t`: the saved times, `0.0, 1.0, 2.0, ..., T`.
@@ -484,8 +485,8 @@ function simulate(network::MyGeneNetwork, x0::Array{Float64,1}, pulses::Array{Tu
     # The pulses: inducer throws an ArgumentError if a pulse is not valid -
     inducer(pulses, 0.0);
 
-    # Step 2: the list of times at which the solver must stop: the start and the stop of each
-    # pulse, if that time is between 0 and T -
+    # Step 2: the list of times that the solver must land on exactly: the start and the stop of
+    # each pulse, if that time is between 0 and T -
     stops = Float64[]; # an empty list of times
     for k in 1:length(pulses)
         (start, stop, concentration) = pulses[k]; # pulse k
@@ -510,9 +511,18 @@ function simulate(network::MyGeneNetwork, x0::Array{Float64,1}, pulses::Array{Tu
     # TODO: t = zeros(number_of_times);
     # TODO: x = zeros(2 * N, number_of_times);
 
-    # Step 7: copy the solution into t and x. For each k from 1 to number_of_times, put
-    # solution.t[k] in t[k], and put entry i of solution.u[k] in x[i, k], for i from 1 to 2N -
-    # TODO: write these two loops.
+    # Step 7: copy the solution into t and x, one saved time at a time. solution.t[k] is the k-th
+    # saved time, and solution.u[k] is the state at that time, a vector with 2N entries. The state
+    # at the k-th saved time goes into column k of x, so entry i of solution.u[k] goes into x[i, k].
+    # For example, x[5, 3] is protein Y at the third saved time, 2 min -
+    # TODO: uncomment the loops below (delete the # at the start of each line), then replace each
+    #       ... with the value that the comment on its line describes.
+    # for k in 1:number_of_times          # each saved time
+    #     t[k] = ...;                     # the k-th saved time
+    #     for i in 1:(2 * N)              # each entry of the state
+    #         x[i, k] = ...;              # entry i of the state at the k-th saved time
+    #     end
+    # end
 
     # Step 8: return the times and the states.
     # TODO: replace the next line with: return (t = t, x = x);

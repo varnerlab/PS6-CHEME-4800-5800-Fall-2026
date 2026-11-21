@@ -69,7 +69,7 @@ checks = [
         result = simulate(two, x0, NO_PULSES; T = 100.0);
         ok = true;
         for j in 1:2
-            m_star = transcription_limit(two, j) / γ_m;
+            m_star = TWO_GENES_TRANSCRIPTION[j] / γ_m;
             for k in 0:100
                 expected = m_star + (x0[j] - m_star) * exp(-γ_m * k);
                 ok = ok && isapprox(result.x[j, k + 1], expected; rtol = 1e-6, atol = 1e-12);
@@ -80,15 +80,7 @@ checks = [
     end,
 
     "steady state stays" => () -> begin
-        γ_m = two.θ_m + two.μ;
-        γ_p = two.θ_p + two.μ;
-        x_star = zeros(4);
-        for j in 1:2
-            x_star[j] = transcription_limit(two, j) / γ_m;            # mRNA
-        end
-        for j in 1:2
-            x_star[2 + j] = translation_limit(two, j, x_star) / γ_p; # protein
-        end
+        x_star = copy(TWO_GENES_STEADY); # [m_A, m_B, p_A, p_B]
         result = simulate(two, copy(x_star), NO_PULSES; T = 500.0);
         ok = true;
         for k in 1:size(result.x, 2)

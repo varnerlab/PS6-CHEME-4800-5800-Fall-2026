@@ -69,13 +69,14 @@ skips if the course repository is not next to this one. It also runs the local,
 Git-ignored checks that the solution README describes, when they are present. The
 validator then runs [test_supplied.jl](test_supplied.jl), separate from student
 scores, once without and once with `--solution`. It checks the loader (the fields
-of `memory.toml`, the weights from `dG`, the loss constants, unknown regulators,
-missing fields, the temperature, other inducer names, the `[inputs.I]` table,
-Windows line endings, and the no-loop file), the helpers (bound fractions,
-negative concentrations, and the inducer pulses), and, with `--solution`, the three steady
-states. The validator then
-copies the student files into temporary directories and substitutes the reference
-implementation only in those copies. It checks all 40 tests, the driver, and the
+of `memory.toml`, the kinetic limits and time constants, the weights from `dG`,
+the loss constants, unknown regulators, missing fields, values that must be
+positive, the temperature, other inducer names, the `[inputs.I]` table, Windows
+line endings, and the no-loop file), the helpers (bound fractions, negative
+concentrations, and the inducer pulses), and, with `--solution`, the three steady
+states. The validator then copies the student files into temporary directories
+and substitutes the reference implementation only in those copies. It checks all
+40 tests, the driver, and the
 checker's handling of unfinished code, partial work, syntax errors, missing
 responses, Windows line endings, runs from another folder, and reporting errors.
 Logs are in `instructor/validation-output/`; reference reports are copied to

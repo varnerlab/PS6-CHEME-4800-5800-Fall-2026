@@ -11,16 +11,17 @@ const AVOGADRO = 6.02214076e23;
 """
     MyBoundRegulator
 
-One regulator bound in a promoter state.
+One transcription factor bound in a promoter state.
 
 ### Fields
 - `regulator::String`: the name of the gene whose protein binds, such as `"X"`.
-- `K::Float64`: the available regulator concentration at which the bound fraction is one half
-  (nmol/gDW).
+- `K::Float64`: the concentration of the available transcription factor at which the bound
+  fraction is one half (nmol/gDW).
 - `n::Float64`: the binding order (dimensionless).
-- `inducer::Bool`: `true` when the inducer I sets the fraction of the regulator that can bind.
-- `K_I::Float64`: the inducer concentration at which half of the regulator is bound to the inducer
-  (µM). `0.0` when `inducer` is `false`.
+- `inducer::Bool`: `true` when the inducer I sets the fraction of the transcription factor that
+  can bind.
+- `K_I::Float64`: the inducer concentration at which half of the transcription factor is bound to
+  the inducer (µM). `0.0` when `inducer` is `false`.
 - `n_I::Float64`: the binding order of the inducer. `0.0` when `inducer` is `false`.
 """
 struct MyBoundRegulator
@@ -41,8 +42,8 @@ One state of a gene's promoter.
 - `dG::Float64`: the Gibbs energy of the state relative to the empty promoter (kJ/mol).
 - `W::Float64`: the weight of the state, `exp(−dG/RT)` (dimensionless).
 - `active::Bool`: `true` when RNA polymerase transcribes the gene in this state.
-- `bound::Array{MyBoundRegulator,1}`: the regulators bound in this state. A state with no bound
-  regulators, such as RNA polymerase bound alone, has an empty list.
+- `bound::Array{MyBoundRegulator,1}`: the transcription factors bound in this state. A state
+  with no transcription factor bound, such as RNA polymerase bound alone, has an empty list.
 """
 struct MyPromoterState
     dG::Float64
@@ -86,12 +87,13 @@ A gene network read from a TOML file by `load_network`.
 
 ### Fields
 - `description::String`: one line from the file's `[metadata]` table (`""` if there is none).
-- `genes::Array{MyGene,1}`: the genes, in file order. Gene `j` has mRNA state `j` and protein
-  state `N + j`, where `N` is the number of genes.
+- `genes::Array{MyGene,1}`: the genes, in file order. The mRNA concentration of gene `j` is
+  entry `j` of the state `x`, and its protein concentration is entry `N + j`, where `N` is the
+  number of genes.
 - `index::Dict{String,Int64}`: the position of each gene, by name.
 - `temperature::Float64`: the absolute temperature (K).
 - `θ_m::Float64`, `θ_p::Float64`: the degradation rate constants of mRNA and protein (1/min).
-- `μ::Float64`: the growth rate (1/min). Growth dilutes mRNA and protein at this rate.
+- `μ::Float64`: the specific growth rate (1/min). Growth dilutes mRNA and protein at this rate.
 """
 struct MyGeneNetwork
     description::String
@@ -158,8 +160,9 @@ The `[parameters]` table describes the cell, RNA polymerase, and ribosomes:
 
 Each `[[genes]]` entry has `name`, `gene_copy_number`, `length_of_gene_in_nt`, and
 `length_of_protein_in_aa`, and lists its promoter states as `[[genes.promoter]]` entries with
-`dG` (kJ/mol) and `active`. Each state lists its bound regulators as `[[genes.promoter.bound]]`
-entries with `regulator`, `K`, and `n`. A bound regulator that needs the inducer to bind also has
+`dG` (kJ/mol) and `active`. Each state lists its bound transcription factors as
+`[[genes.promoter.bound]]` entries with `regulator`, `K`, and `n`. A transcription factor that
+needs the inducer to bind also has
 `inducer = "I"`, `inducer_effect = "activates"`, `K_I`, and `n_I`, and the file then needs an
 `[inputs.I]` table with `initial = 0.0`, because there is no inducer before the first pulse.
 
@@ -188,9 +191,9 @@ the weight W = exp(−dG/RT) of each promoter state, the degradation rate consta
 ### Errors
 Throws an `ArgumentError` that names the field if a field is missing, if a number in
 `[parameters]`, a gene copy number, or a length is not positive, if a gene name appears twice, if
-a state names a regulator that is not a gene of the network, if a bound regulator names an
-inducer other than `"I"` or an effect other than `"activates"`, or if the file has no
-`[inputs.I]` table with `initial = 0.0` when a regulator needs the inducer to bind.
+a state names a `regulator` that is not a gene of the network, if a transcription factor names
+an inducer other than `"I"` or an effect other than `"activates"`, or if the file has no
+`[inputs.I]` table with `initial = 0.0` when a transcription factor needs the inducer to bind.
 
 ### Example
 ```julia
@@ -284,7 +287,7 @@ function load_network(path::String)::MyGeneNetwork
             W = exp(-dG / RT);
             active = Bool(required_value(state_tables[s], "active", location));
 
-            # The regulators bound in this state -
+            # The transcription factors bound in this state -
             bound = MyBoundRegulator[];
             bound_tables = get(state_tables[s], "bound", Dict{String,Any}[]);
             for b in 1:length(bound_tables)
@@ -296,7 +299,7 @@ function load_network(path::String)::MyGeneNetwork
                 K = Float64(required_value(entry, "K", location));
                 n = Float64(required_value(entry, "n", location));
 
-                # The inducer, if this regulator needs the inducer to bind -
+                # The inducer, if this transcription factor needs the inducer to bind -
                 has_inducer = haskey(entry, "inducer");
                 K_I = 0.0;
                 n_I = 0.0;
@@ -319,7 +322,7 @@ function load_network(path::String)::MyGeneNetwork
         push!(genes, MyGene(name, G, Vmax_X, τ_X, K_X, Vmax_L, τ_L, K_L, states));
     end
 
-    # A regulator that needs the inducer to bind requires the [inputs.I] table with initial = 0.0 -
+    # A transcription factor that needs the inducer requires the [inputs.I] table with initial = 0.0 -
     if uses_inducer == true
         if haskey(data, "inputs") == false || haskey(data["inputs"], "I") == false
             throw(ArgumentError("a regulator needs the inducer \"I\" to bind, so the file needs an [inputs.I] table with initial = 0.0"));
@@ -337,13 +340,13 @@ end
 """
     bound_fraction(network::MyGeneNetwork, b::MyBoundRegulator, x::Array{Float64,1}, I::Float64) -> Float64
 
-Return the bound fraction `aⁿ / (Kⁿ + aⁿ)` of the regulator `b` at the state `x` and the inducer
-concentration `I` (µM). The bound fraction multiplies the weight of each promoter state that
+Return the bound fraction `aⁿ / (Kⁿ + aⁿ)` of the transcription factor `b` at the state `x` and
+the inducer concentration `I` (µM). The bound fraction multiplies the weight of each promoter state that
 lists `b`.
 
-The available concentration `a` is the protein concentration of the regulator, read from `x`.
-When the regulator needs the inducer to bind (`b.inducer` is `true`), only the fraction of the
-protein that is bound to the inducer can bind, so `a` is the protein concentration times
+The available concentration `a` is the protein concentration of the transcription factor, read
+from `x`. When the transcription factor needs the inducer to bind (`b.inducer` is `true`), only
+the fraction of the protein that is bound to the inducer can bind, so `a` is the protein concentration times
 `I^n_I / (K_I^n_I + I^n_I)`. A negative concentration binds nothing: the function returns `0.0`.
 
 ### Errors
@@ -365,7 +368,8 @@ function bound_fraction(network::MyGeneNetwork, b::MyBoundRegulator, x::Array{Fl
         throw(ArgumentError("the inducer concentration must not be negative, got $I"));
     end
 
-    # The protein concentration of the regulator: protein states follow the N mRNA states -
+    # The protein concentration of the transcription factor: in x, the N protein concentrations
+    # follow the N mRNA concentrations -
     N = length(network.genes);
     a = x[N + network.index[b.regulator]];
 

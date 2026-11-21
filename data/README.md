@@ -18,10 +18,10 @@ D750–D753, [DOI: 10.1093/nar/gkp889](https://doi.org/10.1093/nar/gkp889)).
 
 | Value | Where it comes from |
 |---|---|
-| `mass_of_single_cell` = 2.8 × 10⁻¹³ gDW, `volume_of_single_cell` = 6.7 × 10⁻¹⁶ L | BioNumbers IDs 103904 and 100011. |
+| `volume_of_single_cell` = 6.7 × 10⁻¹⁶ L | BioNumbers ID 100011. |
 | RNA polymerase: 4600 copies per cell, 60 nt/s, an initiation time constant of 42 s, and a transcription saturation constant of 0.3 µM | Values from the course materials for *E. coli*. |
 | Ribosomes: 50,000 copies per cell, 16.5 aa/s, an initiation time constant of 15 s (BioNumbers ID 109525), a translation saturation factor of 190, and 4 ribosomes on each mRNA | Values from the course materials for *E. coli*. |
-| One copy of each gene per cell, genes of 1000 nt, and proteins of 330 aa | The average *E. coli* gene and protein lengths in the course materials. |
+| One copy of each gene per cell, genes of 1000 nt, and proteins of 330 aa | One copy, as for a gene on the chromosome. The lengths are the average *E. coli* gene and protein lengths in the course materials. |
 | mRNA half-life 5 min, protein half-life 35 min, doubling time 60 min | Values from the course materials for a bacterium growing in culture. |
 | `temperature` = 310.15 K | 37 °C. |
 | `dG` = 13.66 kJ/mol for the leak states, `dG` = −5.94 kJ/mol for the states with protein Y or protein Z bound | Values from the course materials for a leaky promoter and an activated promoter. |
