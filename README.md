@@ -153,7 +153,7 @@ low state of the memory motif at 0 min and ends at 900 min, with a time step of
 0.1 min. Each pulse of inducer starts at 60 min. Genes Y and Z have the same
 parameters and start at the same levels, so protein Y also gives the level of
 protein Z, which the company reads as fluorescence. A pulse is **remembered** if
-protein Y is above the middle state at 900 min, and **forgotten** otherwise.
+protein Y is above the middle state at 900 min.
 
 The script `runmotif.jl` uses your three functions to run the analyses, prints the
 main results, and writes these files to the `outputs/` directory:
@@ -163,7 +163,7 @@ main results, and writes these files to the `outputs/` directory:
 | `steady-states.csv` | The protein levels at the low, middle, and high states, and the largest real part of the eigenvalues at each state. A negative value means the state is stable. |
 | `memory.csv` | The protein levels every minute from 0 to 900 min in three runs: a 60-min pulse of 5 µM in the memory motif, the same pulse in the circuit with the Y–Z loop cut, and a 10-min pulse of 5 µM in the memory motif. |
 | `memory.png` | Protein Y in the three runs of `memory.csv`, with the 60-min pulse shaded and a dashed line at the middle state. |
-| `pulse-threshold.csv` | For each inducer level (2, 5, 10, 20, and 50 µM), the script tries pulses of 1, 2, 3, …, 600 min. The file gives the shortest remembered pulse, protein Y at the end of that pulse, the minutes from the end of that pulse until protein Y crosses the middle state, the longest forgotten pulse, the peak of protein Y after the longest forgotten pulse, and protein Y at the middle state. |
+| `pulse-threshold.csv` | The shortest remembered pulse at each inducer level (2, 5, 10, 20, and 50 µM). The script tries pulses of 1, 2, 3, …, 600 min. |
 
 Use these files to answer the two questions in [responses.md](responses.md).
 

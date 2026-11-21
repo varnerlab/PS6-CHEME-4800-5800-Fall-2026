@@ -376,7 +376,7 @@ function write_pulse_threshold(directory, assignment, memory, low, middle)
 
     # The header -
     io = open(joinpath(directory, "pulse-threshold.csv"), "w");
-    println(io, "inducer_uM,shortest_remembered_min,pY_at_end_of_shortest_nmol_per_gDW,minutes_after_end_to_cross_middle,longest_forgotten_min,peak_pY_after_longest_forgotten_nmol_per_gDW,middle_steady_state_pY_nmol_per_gDW");
+    println(io, "inducer_uM,shortest_remembered_min");
 
     # One row per inducer level -
     shortest = zeros(Int64, length(LEVELS));
@@ -385,45 +385,22 @@ function write_pulse_threshold(directory, assignment, memory, low, middle)
 
         # Try longer and longer pulses until one is remembered -
         found = 0;
-        remembered = nothing;
         d = 1;
         while found == 0 && d <= LONGEST_SCAN
             result = run_pulse(assignment, memory, low, Float64(d), level);
             if result.x[5, end] > middle
                 found = d;
-                remembered = result;
             end
             d = d + 1;
         end
         shortest[i] = found;
+
+        # Write the row; "none" means no pulse up to LONGEST_SCAN min is remembered -
         if found == 0
-            @printf(io, "%.0f,none,,,,,%.5f\n", level, middle);
-            continue;
+            @printf(io, "%.0f,none\n", level);
+        else
+            @printf(io, "%.0f,%d\n", level, found);
         end
-
-        # Protein Y at the end of the shortest remembered pulse, and when it crosses the middle steady state -
-        start = round(Int64, PULSE_START / MAIN_STEP) + 1;           # the column of the time the pulse starts
-        stop = round(Int64, (PULSE_START + found) / MAIN_STEP) + 1;  # the column of the time the pulse stops
-        crossing = stop;
-        while remembered.x[5, crossing] <= middle
-            crossing = crossing + 1;
-        end
-        if crossing == stop
-            crossing = start;
-            while remembered.x[5, crossing] <= middle # crossed during the pulse: find when
-                crossing = crossing + 1;
-            end
-        end
-
-        # The peak of protein Y after the longest forgotten pulse, one minute shorter -
-        peak = 0.0;
-        if found > 1
-            forgotten = run_pulse(assignment, memory, low, Float64(found - 1), level);
-            forgotten_stop = round(Int64, (PULSE_START + found - 1) / MAIN_STEP) + 1;
-            peak = maximum(forgotten.x[5, forgotten_stop:end]);
-        end
-        @printf(io, "%.0f,%d,%.5f,%.1f,%d,%.5f,%.5f\n", level, found, remembered.x[5, stop],
-            remembered.t[crossing] - remembered.t[stop], found - 1, peak, middle);
     end
     close(io);
 
