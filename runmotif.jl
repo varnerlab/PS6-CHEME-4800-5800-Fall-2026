@@ -10,7 +10,7 @@
 #
 # After you finish Parts 1 and 2, this script runs the analyses described in the
 # README section "Run the analyses": the steady states with no inducer, a long and a
-# short inducer pulse, and the shortest remembered pulse at five inducer levels. It
+# short inducer pulse, and the shortest remembered pulse at five inducer concentrations. It
 # writes the plot and tables to outputs/ and overwrites any earlier files with the
 # same names.
 

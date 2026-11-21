@@ -1,11 +1,14 @@
 # Problem Set 6 (PS6): A gene circuit that remembers a signal
 
 A biotechnology company builds a cell-based sensor that records whether a sample
-ever contained a chemical signal. The sensor cells are bacteria that carry a small
-gene circuit. When the signal molecule enters a cell, the circuit switches on two
-genes, Y and Z, and keeps them on after the signal is gone. Protein Z carries a
-fluorescent tag, so the company reads the record as the fluorescence of the cells
-hours later.
+contains a chemical signal molecule. The sensor cells are bacteria that carry a
+small gene circuit. The signal molecule enters a cell and binds to the sensor
+protein X, which then activates the expression of two other genes, Y and Z. Genes
+Y and Z form the memory of the circuit: protein Y activates gene Z, and protein Z
+activates gene Y. Protein Z carries a small fluorescent tag, so the company can
+read the record of the signal by measuring the fluorescence of the cells. The
+company wants to understand how long the cells must be exposed to the signal for
+the cells to remember it. Let's explore the circuit and its memory.
 
 Problem Set 6 (PS6) is due: __11:59 PM ET, Saturday, December 5, 2026__. Released November 21, 2026.
 
@@ -36,22 +39,27 @@ has three genes, X, Y, and Z, and one **inducer**, I: the signal molecule.
 - Proteins X, Y, and Z are **transcription factors**: proteins that bind the
   **promoter** of a gene, the DNA region where RNA polymerase starts
   transcription, and change how often the gene is transcribed.
-- Gene X is always transcribed. Only protein X that carries the inducer can bind
-  a promoter. Bound protein X activates genes Y and Z.
+- Gene X is always transcribed. Only protein X that is bound to the signal molecule (inducer) can bind
+  the promoters of genes Y and Z. Bound protein X activates genes Y and Z.
 - Protein Y activates gene Z, and protein Z activates gene Y. These two
   activations form the **Y–Z loop**.
 
-We'll model the circuit with six balances: one for the mRNA level and one for
-the protein level of each gene. The transcription rate of each gene is set by its
-**control**, a number from `0` to `1`: the probability that the gene's promoter is
-in a state that transcribes. The translation rate of each mRNA saturates as the
-mRNA level rises. Degradation and dilution remove mRNA and protein. We'll solve
-the balances with an ODE solver, the `Tsit5` method from the OrdinaryDiffEq
-package.
+We'll model the circuit with six material balances: one for the mRNA
+concentration and one for the protein concentration of each gene. The
+transcription rate of each gene is set by its kinetic limit, the gene
+concentration, the competition of the other genes for RNA polymerase, and the
+value of its **control variable**, a number from `0` to `1`: the probability that
+the gene's promoter is in a state that is able to transcribe the gene to mRNA.
+The translation rate of each mRNA rises and saturates as the mRNA concentration
+rises; it is set by the translation kinetic limit and the competition of the
+other mRNAs for ribosomes. Degradation and dilution remove mRNA and protein.
+We'll solve the material balances with an ODE solver, the `Tsit5` method from the
+OrdinaryDiffEq package.
 
-You will write the control of a gene, the balances, and the function that solves
-them. You will then use them to find how long a pulse of inducer must last for the
-cells to remember it.
+You will write the control variable of a gene, the material balances, and the
+function that solves the material balances. You will then use these three
+functions to find how long a pulse of inducer must last for the cells to remember
+the signal.
 
 ## Setup
 
@@ -78,55 +86,72 @@ with the Y–Z loop cut: proteins Y and Z no longer activate each other's genes.
 Calling `network = load_network(path)` ([src/Network.jl](src/Network.jl)) reads a
 network file into `network`.
 
-Levels inside the cells are in nmol/gDW, nanomoles per gram of dry cell weight.
-The inducer concentration is in µM, in the medium around the cells. Times are in
-minutes. The [data notes](data/README.md) give the sources of the values.
+Intracellular concentrations are in units of nmol/gDW, nanomoles per gram of dry
+cell weight. The inducer, in the medium around the cells, has concentration units
+of µM, micromoles per liter. Times are in minutes. The [data notes](data/README.md)
+give the sources of the values.
 
 | Field | Meaning |
 |---|---|
-| `mRNA_half_life`, `protein_half_life` | The half-life of each mRNA and each protein to degradation (min). |
+| `mass_of_single_cell`, `volume_of_single_cell` | The dry mass (gDW) and the volume (L) of one cell. The loader uses them to turn copies per cell and µM into nmol/gDW. |
 | `doubling_time` | The time the cells take to double (min), which sets the dilution by growth. |
 | `temperature` | The absolute temperature (K), which sets the weight of each promoter state. |
+| `copies_of_rnap_per_cell`, `transcription_elongation_rate`, `transcription_initiation_time_constant`, `transcription_saturation_constant` | The copies of RNA polymerase per cell, the elongation rate of RNA polymerase (nt/s), the time RNA polymerase takes to start transcription (s), and the transcription saturation constant (µM). |
+| `copies_of_ribosome_per_cell`, `translation_elongation_rate`, `translation_initiation_time_constant`, `translation_saturation_factor`, `average_polysome_number` | The copies of ribosomes per cell, the elongation rate of ribosomes (aa/s), the time a ribosome takes to start translation (s), the translation saturation constant divided by the transcription saturation constant, and the number of ribosomes on each mRNA. |
+| `mRNA_half_life`, `protein_half_life` | The half-life of each mRNA and each protein to degradation (min). |
 | `[inputs.I]`, `initial` | The inducer, and its concentration before the first pulse, `0.0` µM. |
-| `G` | The gene level (nmol/gDW). |
-| `Vmax_X`, `K_X` | The transcription kinetic limit (nmol/gDW/min) and the transcription saturation constant (nmol/gDW). With `G`, they set the transcription rate of a gene when its control is `1`. |
-| `Vmax_L`, `K_L` | The translation kinetic limit (nmol/gDW/min) and the translation saturation constant: the mRNA level at which translation runs at half its kinetic limit (nmol/gDW). |
+| `gene_copy_number`, `length_of_gene_in_nt`, `length_of_protein_in_aa` | The copies of a gene per cell, the length of the gene (nt), and the length of its protein (aa). |
 | `dG`, `active` | The Gibbs energy of a promoter state relative to the empty promoter (kJ/mol), and whether RNA polymerase transcribes the gene in that state. |
-| `regulator`, `K`, `n` | The transcription factor bound in a promoter state, the level of the available transcription factor at which its bound fraction is one half (nmol/gDW), and the binding order. |
-| `inducer`, `K_I`, `n_I` | The inducer the transcription factor must carry to bind, the inducer concentration at which half of the transcription factor carries it (µM), and the binding order of the inducer. |
+| `regulator`, `K`, `n` | The transcription factor bound in a promoter state, the concentration of the available transcription factor at which its bound fraction is one half (nmol/gDW), and the binding order. |
+| `inducer`, `K_I`, `n_I` | The inducer the transcription factor needs to bind, the inducer concentration at which half of the transcription factor is bound to the inducer (µM), and the binding order of the inducer. |
 
-A **promoter state** is one arrangement of proteins bound to the promoter. The
-promoter of gene Y has three listed states: RNA polymerase bound alone, which
-gives a small leak of transcription; RNA polymerase with protein X bound; and RNA
-polymerase with protein Z bound. The promoter of gene Z has the same states, with
-protein Y in place of protein Z. Gene X lists one state, RNA polymerase bound
-alone, so gene X is always transcribed. The loader turns the `dG` of each state
-into the state's weight `W`: the lower the Gibbs energy of a state, the larger its
-weight.
+From these values, the loader computes the gene concentration, the kinetic
+limits, the saturation constants, and the time constants of each gene. The
+description of `load_network` in [src/Network.jl](src/Network.jl) shows how.
 
-The state of the circuit is the vector `x = [m_X, m_Y, m_Z, p_X, p_Y, p_Z]`: the
-three mRNA levels, then the three protein levels. The supplied code also gives you
-these functions:
+A **promoter state of gene Y** is one arrangement of proteins bound to the
+promoter. The promoter of gene Y has three listed states: RNA polymerase bound
+alone, which gives a small leak of transcription; RNA polymerase with protein X
+bound; and RNA polymerase with protein Z bound.
 
-- `bound_fraction(network, b, x, I)` returns the bound fraction of the regulator
-  `b` at the state `x` and the inducer concentration `I`.
+The **promoter of gene Z** has the same states, with protein Y in place of protein
+Z. Gene X lists one state, RNA polymerase bound alone, so gene X is always
+transcribed. The loader turns the Gibbs energy `dG` of each state into the state's
+weight `W`: the lower the Gibbs energy of a state, the larger its weight.
+
+The **state of the circuit** is the vector `x = [m_X, m_Y, m_Z, p_X, p_Y, p_Z]`:
+the intracellular concentrations of the three mRNAs, then of the three proteins.
+The supplied code also gives you these functions:
+
+- `bound_fraction(network, b, x, I)` returns the bound fraction of `b`, a
+  transcription factor bound in a promoter state, at the state `x` and the inducer
+  concentration `I`. The bound fraction multiplies the weight `W` of that promoter
+  state.
 - `inducer(pulses, t)` returns the inducer concentration at time `t`. Each pulse
-  is a tuple `(start, stop, level)`: for example, `(60.0, 90.0, 5.0)` is 5 µM of
-  inducer from 60 to 90 min.
+  is a tuple `(start, stop, concentration)`: the inducer concentration is
+  `concentration` (µM) from `start` to `stop` (min). For example,
+  `(60.0, 90.0, 5.0)` is 5 µM of inducer from 60 to 90 min.
 
-## Part 1: The control and the balances
+## Part 1: The control variable and the material balances
 
 Implement in [src/Compute.jl](src/Compute.jl):
 
-1. **`control(network, j, x, I)`:** returns the control of gene `j` at the state
-   `x` and the inducer concentration `I`, from the weights of the gene's promoter
-   states.
-2. **`balances!(dx, x, parameters, t)`:** computes the rate of change of every
-   mRNA and protein level at the state `x` and the time `t`, and stores it in
-   `dx`. The argument `parameters` holds the network and the inducer pulses.
+1. **`control(network, j, x, I)`:** returns the control variable of gene `j` at
+   the state `x` and the inducer concentration `I`, from the weights of the
+   promoter states of gene `j`.
+2. **`balances!(dx, x, parameters, t)`:** computes the rate of change of the
+   intracellular concentration of every mRNA and protein at the state `x` and the
+   time `t`, and stores the rates in `dx`. The argument `parameters` holds the
+   network and the inducer pulses.
 
-The description above each function in [src/Compute.jl](src/Compute.jl) gives the
-formula, the inputs it must reject, and the error to throw. Test with:
+Read the description above each function in [src/Compute.jl](src/Compute.jl)
+before you write any code. The description above `control` explains what the
+control variable is, how the promoter states of a gene set it, and works through
+an example for gene Y with numbers you can check. The description above
+`balances!` explains each term of the material balances and says where each value
+is in `network`. Each function body has its steps written for you: write the code
+that each `TODO` comment asks for, then replace the `error(...)` line at the end of
+the function with the return value. Test with:
 
 ```bash
 julia --startup-file=no --project=. testme_part_1.jl
@@ -138,10 +163,15 @@ Part 2 uses your Part 1 functions, so finish Part 1 first.
 
 Implement in [src/Compute.jl](src/Compute.jl):
 
-1. **`simulate(network, x0, pulses; T)`:** solves the balances with the `Tsit5`
-   method from the state `x0` at time `0` to the time `T`, while the inducer
-   follows `pulses`, and returns the state every minute. The inducer jumps at the
-   start and the stop of each pulse, so the solver must stop at those times.
+1. **`simulate(network, x0, pulses; T)`:** solves the material balances with the
+   `Tsit5` method from the initial state `x0` at time `0` to the final time `T`,
+   while the inducer concentration follows `pulses`, and returns the state every
+   minute. The inducer concentration jumps at the start and the stop of each
+   pulse, so the solver must stop at those times.
+
+The description above `simulate` explains what the ODE solver does, gives the two
+lines that call the solver, explains each solver setting, and says what the solver
+returns. As in Part 1, write the code that each `TODO` comment asks for.
 
 When `simulate` is done, run:
 
@@ -152,26 +182,28 @@ julia --startup-file=no --project=. runmotif.jl
 
 ## Run the analyses
 
-With no inducer, the memory motif has three **steady states**, where every level
-stays constant: a low state, a middle state, and a high state. The low and high
-states are stable, so the memory motif is **bistable**. The middle state is
-unstable: protein Y moves away from it, toward the low state or toward the high
-state. Every run in `runmotif.jl` starts at the low state of the memory motif at 0
-min and ends at 900 min, and each pulse of inducer starts at 60 min. Your
-`simulate` solves each run with the settings in its description. Genes Y and Z
-have the same parameters and start at the same levels, so protein Y also gives the
-level of protein Z, which the company reads as fluorescence. A pulse is
-**remembered** if protein Y is above the middle state at 900 min.
+With no inducer, the memory motif has three **steady states**, where every
+intracellular concentration stays constant: a low state, a middle state, and a
+high state. The low and high states are stable, so the memory motif is
+**bistable**. The middle state is unstable: the concentration of protein Y moves
+away from the middle state, toward the low state or toward the high state. Every
+run in `runmotif.jl` starts at the low state of the memory motif at 0 min and ends
+at 900 min, and each pulse of inducer starts at 60 min. Your `simulate` solves
+each run with the solver settings in the description above `simulate`. Genes Y
+and Z have the same parameters and start at the same concentrations, so the
+concentration of protein Y equals the concentration of protein Z, which the
+company measures as fluorescence. A pulse is **remembered** if the concentration
+of protein Y at 900 min is above its concentration at the middle state.
 
 The script `runmotif.jl` uses your three functions to run the analyses, prints the
 main results, and writes these files to the `outputs/` directory:
 
 | File | Contents |
 |---|---|
-| `steady-states.csv` | The protein levels at the low, middle, and high states, and the largest real part of the eigenvalues at each state. A negative value means the state is stable. |
-| `memory.csv` | The protein levels every minute from 0 to 900 min in three runs: a 60-min pulse of 5 µM in the memory motif, the same pulse in the circuit with the Y–Z loop cut, and a 10-min pulse of 5 µM in the memory motif. |
-| `memory.png` | Protein Y in the three runs of `memory.csv`, with the 60-min pulse shaded and a dashed line at the middle state. |
-| `pulse-threshold.csv` | The shortest remembered pulse at each inducer level (2, 5, 10, 20, and 50 µM). The script tries pulses of 1, 2, 3, …, 600 min. |
+| `steady-states.csv` | The protein concentrations at the low, middle, and high steady states, and the largest real part of the eigenvalues of the Jacobian of the material balances at each steady state. A negative largest real part means the steady state is stable. |
+| `memory.csv` | The protein concentrations every minute from 0 to 900 min in three runs: a 60-min pulse of 5 µM inducer in the memory motif, the same pulse in the circuit with the Y–Z loop cut, and a 10-min pulse of 5 µM inducer in the memory motif. |
+| `memory.png` | The concentration of protein Y in the three runs of `memory.csv`, with the 60-min pulse shaded and a dashed line at the concentration of protein Y at the middle state. |
+| `pulse-threshold.csv` | The shortest remembered pulse at each inducer concentration (2, 5, 10, 20, and 50 µM). The script tries pulses of 1, 2, 3, …, 600 min. |
 
 Use these files to answer the two questions in [responses.md](responses.md).
 

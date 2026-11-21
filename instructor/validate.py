@@ -75,7 +75,7 @@ assert "All shared packages match" in output or "skipping" in output, output
 # The cross-check is a local, Git-ignored file; the solution README describes it.
 if (ROOT / "instructor/check_against_course.jl").is_file():
     output = run(ROOT, "course-cross-check", 0, script="instructor/check_against_course.jl")
-    assert "course cross-check |    4      4" in output or "skipping" in output, output
+    assert "course cross-check |    6      6" in output or "skipping" in output, output
 else:
     print("instructor/check_against_course.jl not found; skipping the course cross-check.")
 run(ROOT, "supplied-checks", 0, script="instructor/test_supplied.jl")

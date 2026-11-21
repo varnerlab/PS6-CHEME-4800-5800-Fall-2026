@@ -16,7 +16,7 @@ each question, so that the checker can find your answer.
    TODO: Write your response.
 
 2. **How long must the signal last?** In `pulse-threshold.csv`, give the
-   shortest remembered pulse at each inducer level. Then explain why a weaker
-   signal must last longer.
+   shortest remembered pulse at each inducer concentration. Then explain why a
+   weaker signal must last longer.
 
    TODO: Write your response.

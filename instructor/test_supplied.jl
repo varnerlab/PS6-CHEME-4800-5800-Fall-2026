@@ -38,18 +38,27 @@ end
 # A one-gene network whose promoter has one state bound by the regulator named in REGULATOR -
 const ONE_GENE = """
 [parameters]
-mRNA_half_life = 2.5
-protein_half_life = 35.0
+mass_of_single_cell = 2.8e-13
+volume_of_single_cell = 6.7e-16
 doubling_time = 60.0
 temperature = 310.15
+copies_of_rnap_per_cell = 4600.0
+transcription_elongation_rate = 60.0
+transcription_initiation_time_constant = 42.0
+transcription_saturation_constant = 0.3
+copies_of_ribosome_per_cell = 50000.0
+translation_elongation_rate = 16.5
+translation_initiation_time_constant = 15.0
+translation_saturation_factor = 190.0
+average_polysome_number = 4.0
+mRNA_half_life = 5.0
+protein_half_life = 35.0
 
 [[genes]]
 name = "A"
-G = 0.005
-Vmax_X = 0.04
-K_X = 0.005
-Vmax_L = 0.05
-K_L = 0.05
+gene_copy_number = 1.0
+length_of_gene_in_nt = 1000.0
+length_of_protein_in_aa = 330.0
 
   [[genes.promoter]]
   dG = 0.0
@@ -80,9 +89,22 @@ const RT = 8.314462618e-3 * 310.15; # the thermal energy at 310.15 K (kJ/mol)
         @test network.genes[2].promoter[2].bound[1].inducer == true
         @test network.genes[2].promoter[3].bound[1].inducer == false
         @test network.genes[2].promoter[3].bound[1].n isa Float64
+    end
+
+    @testset "kinetic limits and time constants" begin
+        network = load_network(MEMORY);
+        per_copy = 1e9 / (6.02214076e23 * 2.8e-13); # one copy per cell (nmol/gDW)
+        per_µM = 1e3 * 6.7e-16 / 2.8e-13;            # 1 µM inside the cell (nmol/gDW)
         for g in network.genes
-            @test g.G == 0.005 && g.Vmax_X == 0.04 && g.K_X == 0.005 && g.Vmax_L == 0.05 && g.K_L == 0.05
+            @test isapprox(g.G, per_copy; rtol = 1e-14)
+            @test isapprox(g.Vmax_X, 4600 * per_copy * 60 * 60 / 1000; rtol = 1e-14)
+            @test isapprox(g.τ_X, 60 / 1000 * 42; rtol = 1e-14)
+            @test isapprox(g.K_X, 0.3 * per_µM; rtol = 1e-14)
+            @test isapprox(g.Vmax_L, 4 * 50000 * per_copy * 60 * 16.5 / 330; rtol = 1e-14)
+            @test isapprox(g.τ_L, 16.5 / 330 * 15; rtol = 1e-14)
+            @test isapprox(g.K_L, 190 * 0.3 * per_µM; rtol = 1e-14)
         end
+        @test isapprox(network.genes[2].G, 5.93e-3; rtol = 1e-3) # one copy per cell
     end
 
     @testset "weights from dG" begin
@@ -98,7 +120,7 @@ const RT = 8.314462618e-3 * 310.15; # the thermal energy at 310.15 K (kJ/mol)
 
     @testset "loss constants" begin
         network = load_network(MEMORY);
-        @test isapprox(network.θ_m, log(2) / 2.5; rtol = 1e-12)
+        @test isapprox(network.θ_m, log(2) / 5.0; rtol = 1e-12)
         @test isapprox(network.θ_p, log(2) / 35.0; rtol = 1e-12)
         @test isapprox(network.μ, log(2) / 60.0; rtol = 1e-12)
     end
@@ -110,9 +132,21 @@ const RT = 8.314462618e-3 * 310.15; # the thermal energy at 310.15 K (kJ/mol)
     end
 
     @testset "missing field" begin
-        message = load_error_message(replace(replace(ONE_GENE, "REGULATOR" => "A"), "K_L = 0.05\n" => ""));
+        message = load_error_message(replace(replace(ONE_GENE, "REGULATOR" => "A"), "length_of_protein_in_aa = 330.0\n" => ""));
         @test startswith(message, "ArgumentError")
-        @test occursin("K_L", message)
+        @test occursin("length_of_protein_in_aa", message)
+        message = load_error_message(replace(replace(ONE_GENE, "REGULATOR" => "A"), "copies_of_rnap_per_cell = 4600.0\n" => ""));
+        @test startswith(message, "ArgumentError")
+        @test occursin("copies_of_rnap_per_cell", message)
+    end
+
+    @testset "values must be positive" begin
+        message = load_error_message(replace(replace(ONE_GENE, "REGULATOR" => "A"), "gene_copy_number = 1.0" => "gene_copy_number = 0.0"));
+        @test startswith(message, "ArgumentError")
+        @test occursin("gene_copy_number", message)
+        message = load_error_message(replace(replace(ONE_GENE, "REGULATOR" => "A"), "mass_of_single_cell = 2.8e-13" => "mass_of_single_cell = -2.8e-13"));
+        @test startswith(message, "ArgumentError")
+        @test occursin("mass_of_single_cell", message)
     end
 
     @testset "temperature must be positive" begin
@@ -185,11 +219,11 @@ end
         @test bound_fraction(network, z_bound, x, 0.0) == 0.5
         x[4] = 20.0;
         @test bound_fraction(network, x_bound, x, 0.0) == 0.0
-        available = 0.5 * x[4]; # half of X carries the inducer at I = K_I, with n_I = 1
+        available = 0.5 * x[4]; # half of X is bound to the inducer at I = K_I, with n_I = 1
         @test isapprox(bound_fraction(network, x_bound, x, x_bound.K_I), available^2 / (x_bound.K^2 + available^2); rtol = 1e-14)
     end
 
-    @testset "negative level binds nothing" begin
+    @testset "negative concentration binds nothing" begin
         network = load_network(MEMORY);
         b = MyBoundRegulator("Y", 3.0, 2.5, false, 0.0, 0.0);
         x = [0.0, 0.0, 0.0, 1.0, -1e-3, 1.0];

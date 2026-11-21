@@ -63,14 +63,13 @@ checks = [
     end,
 
     "mRNA closed form" => () -> begin
-        # With a control of 1, each mRNA approaches r_X / γ_m as exp(-γ_m t) -
+        # With a control variable of 1, each mRNA approaches r_X / γ_m as exp(-γ_m t) -
         γ_m = two.θ_m + two.μ;
         x0 = [0.0, 0.05, 0.0, 0.0];
         result = simulate(two, x0, NO_PULSES; T = 100.0);
         ok = true;
         for j in 1:2
-            g = two.genes[j];
-            m_star = g.Vmax_X * g.G / (g.K_X + g.G) / γ_m;
+            m_star = transcription_limit(two, j) / γ_m;
             for k in 0:100
                 expected = m_star + (x0[j] - m_star) * exp(-γ_m * k);
                 ok = ok && isapprox(result.x[j, k + 1], expected; rtol = 1e-6, atol = 1e-12);
@@ -85,9 +84,10 @@ checks = [
         γ_p = two.θ_p + two.μ;
         x_star = zeros(4);
         for j in 1:2
-            g = two.genes[j];
-            x_star[j] = g.Vmax_X * g.G / (g.K_X + g.G) / γ_m;                   # mRNA
-            x_star[2 + j] = g.Vmax_L * x_star[j] / (g.K_L + x_star[j]) / γ_p; # protein
+            x_star[j] = transcription_limit(two, j) / γ_m;            # mRNA
+        end
+        for j in 1:2
+            x_star[2 + j] = translation_limit(two, j, x_star) / γ_p; # protein
         end
         result = simulate(two, copy(x_star), NO_PULSES; T = 500.0);
         ok = true;

@@ -20,7 +20,7 @@ memory = memory_network();
 toy = toy_network(TOY_GENES);
 two = toy_network(TWO_GENES);
 long_pulse = [(60.0, 120.0, 5.0)];           # 5 µM from 60 to 120 min
-x_test = [0.03, 0.001, 0.002, 0.8, 0.3, 0.5]; # a state away from every steady state (nmol/gDW)
+x_test = copy(X_TEST);                         # a state away from every steady state (nmol/gDW)
 γ_m = two.θ_m + two.μ;                        # mRNA loss rate (1/min)
 
 # ----------------------------------------------------------------------------
@@ -28,7 +28,7 @@ x_test = [0.03, 0.001, 0.002, 0.8, 0.3, 0.5]; # a state away from every steady s
 # ----------------------------------------------------------------------------
 
 checks = [
-    # The control of one gene -
+    # The control variable of one gene -
     "control returns a Float64" => () ->
         control(memory, 2, copy(LOW_STATE), 0.0) isa Float64,
 
@@ -49,7 +49,7 @@ checks = [
 
     "partner raises Y" => () -> begin
         x = copy(LOW_STATE);
-        x[6] = memory.genes[2].promoter[3].bound[1].K; # protein Z at its half-binding level
+        x[6] = memory.genes[2].promoter[3].bound[1].K; # protein Z at its half-binding concentration
 
         control(memory, 2, x, 0.0) > control(memory, 2, copy(LOW_STATE), 0.0)
     end,
@@ -57,7 +57,7 @@ checks = [
     "control between 0 and 1" => () -> begin
         values = zeros(20);
         for k in 1:20
-            x = [0.001 * k, 0.0005 * k, 0.0002 * k, 0.05 * k, 0.003 * k^2, 0.01 * k];
+            x = [0.1 * k, 0.05 * k, 0.02 * k, 100.0 * k, 5.0 * k^2, 50.0 * k];
             values[k] = control(memory, 2 + (k % 2), x, 2.5 * (k - 1));
         end
 
@@ -65,8 +65,8 @@ checks = [
     end,
 
     "Y and Z are symmetric" => () -> begin
-        x = [0.01, 0.002, 0.003, 0.9, 0.07, 0.2];
-        swapped = [0.01, 0.003, 0.002, 0.9, 0.2, 0.07]; # Y and Z exchanged
+        x = [1.0, 0.2, 0.3, 1800.0, 150.0, 400.0];
+        swapped = [1.0, 0.3, 0.2, 1800.0, 400.0, 150.0]; # Y and Z exchanged
 
         isapprox(control(memory, 2, x, 5.0), control(memory, 3, swapped, 5.0); rtol = 1e-14)
     end,
@@ -109,7 +109,7 @@ checks = [
         dx = fill(NaN, 6); # every entry must be overwritten
         result = balances!(dx, copy(x_test), (network = memory, pulses = long_pulse), 70.0);
 
-        isnothing(result) && all_between(dx, -1.0, 1.0)
+        isnothing(result) && all_between(dx, -1.0e4, 1.0e4)
     end,
 
     "stored balances" => () -> begin
@@ -127,28 +127,26 @@ checks = [
     end,
 
     "mRNA balance" => () -> begin
-        # Genes A and B have no promoter states, so their control is 1 -
+        # Genes A and B have no promoter states, so their control variable is 1 -
         x = [0.01, 0.03, 0.2, 0.5];
         dx = zeros(4);
         balances!(dx, x, (network = two, pulses = NO_PULSES), 0.0);
         ok = true;
         for j in 1:2
-            g = two.genes[j];
-            expected = g.Vmax_X * g.G / (g.K_X + g.G) - γ_m * x[j];
+            expected = transcription_limit(two, j) - γ_m * x[j];
             ok = ok && isapprox(dx[j], expected; rtol = 1e-12);
         end
 
         ok
     end,
 
-    "translation saturates" => () -> begin
-        A = two.genes[1];
-        B = two.genes[2];
-        x = [A.K_L, 100.0 * B.K_L, 0.0, 0.0]; # no protein, so no protein is lost
+    "translation rate with competition" => () -> begin
+        # The mRNA of each gene competes for ribosomes with the mRNA of the other gene -
+        x = [two.genes[1].K_L, 3.0 * two.genes[2].K_L, 0.0, 0.0]; # no protein, so no protein is lost
         dx = zeros(4);
         balances!(dx, x, (network = two, pulses = NO_PULSES), 0.0);
 
-        isapprox(dx[3], A.Vmax_L / 2.0; rtol = 1e-12) && isapprox(dx[4], B.Vmax_L * 100.0 / 101.0; rtol = 1e-12)
+        isapprox(dx[3], translation_limit(two, 1, x); rtol = 1e-12) && isapprox(dx[4], translation_limit(two, 2, x); rtol = 1e-12)
     end,
 
     "inducer read at time t" => () -> begin
