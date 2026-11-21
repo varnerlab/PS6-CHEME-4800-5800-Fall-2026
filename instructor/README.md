@@ -1,14 +1,17 @@
 # PS6 instructor notes
 
 The student task is fixed: simulate the regulated feedback (memory) motif of Alon
-with the bilinear recursion. The network and its parameters come from a TOML
-file. Parts 1–2 require three functions (`control`, `discretize`, `simulate`) and
-two written responses, graded out of four points using 40 tests. There is no
-Advanced track. The loader (`load_network`), `state_matrices`, `bound_fraction`,
-`inducer`, and the report code (`src/Reporting.jl`) are supplied. The design is
-recorded in [DESIGN.md](DESIGN.md) and the build plan in [plans/](plans/); both
-are local files, ignored by Git, because DESIGN.md lists the ideas expected in the
-answers.
+by solving the full nonlinear mRNA and protein balances with an ODE solver
+(`Tsit5`), using the course's gene-network model. The network and its parameters
+come from a TOML file in the course format. Parts 1–2 require three functions
+(`control`, `balances!`, `simulate`) and two written responses, graded out of four
+points using 40 tests. There is no Advanced track. The loader (`load_network`),
+`bound_fraction`, `inducer`, and the report code (`src/Reporting.jl`) are
+supplied. The design is recorded in
+[plans/2026-11-21-ps6-ode-redesign.md](plans/2026-11-21-ps6-ode-redesign.md);
+[DESIGN.md](DESIGN.md) is the earlier design, with linear translation and the
+bilinear recursion, and is stale. Both are local files, ignored by Git, because
+they list the ideas expected in the answers.
 
 ## Reviewing the assignment
 
@@ -60,12 +63,17 @@ python3 instructor/validate.py
 python3 instructor/build_student_package.py
 ```
 
-The validator first runs [test_supplied.jl](test_supplied.jl), separate from
-student scores, once without and once with `--solution`. It checks the loader
-(the fields of `memory.toml`, the loss constants, unknown regulators, missing
-fields, other inducer names, Windows line endings, and the no-loop file), the
-helpers (`A` and `B`, bound fractions, negative levels, and the inducer pulses),
-and, with `--solution`, the three steady states. The validator then
+The validator first runs [check_versions.jl](check_versions.jl), which checks
+that every package shared with the course environment has the course version; it
+skips if the course repository is not next to this one. It also runs the local,
+Git-ignored checks that the solution README describes, when they are present. The
+validator then runs [test_supplied.jl](test_supplied.jl), separate from student
+scores, once without and once with `--solution`. It checks the loader (the fields
+of `memory.toml`, the weights from `dG`, the loss constants, unknown regulators,
+missing fields, the temperature, other inducer names, the `[inputs.I]` table,
+Windows line endings, and the no-loop file), the helpers (bound fractions,
+negative levels, and the inducer pulses), and, with `--solution`, the three steady
+states. The validator then
 copies the student files into temporary directories and substitutes the reference
 implementation only in those copies. It checks all 40 tests, the driver, and the
 checker's handling of unfinished code, partial work, syntax errors, missing
@@ -83,23 +91,25 @@ so they stay off GitHub until the reference solution is released.
 
 ## Modeling choices
 
-- **Units.** Levels inside the cell, `Vmax_X`, and `K` are in nmol/gDW; the
-  inducer and `K_I` are in µM, in the medium; time is in minutes (instructor,
-  November 19, 2026).
-- **Model.** Transcription is `Vmax_X` times the control; translation is `k_L`
-  times the mRNA; there is no translational control, so `A` and `B` are constant
-  and all of the regulation is in the control. The control follows the
-  active-state rule: the bare promoter has weight 1, and each listed state has
-  weight `W` times the bound fraction of each regulator bound in it.
-- **Values.** `Vmax_X`, `k_L`, the half-lives, and the doubling time are derived
-  from course cell constants; [data/README.md](../data/README.md) gives the
-  derivation. W₁, K(X), n(X), and K(Y, Z) were tuned with the Git-ignored
+- **Units.** Levels inside the cell, `G`, `K_X`, `K_L`, and `K` are in nmol/gDW;
+  `Vmax_X` and `Vmax_L` are in nmol/gDW/min; the inducer and `K_I` are in µM, in
+  the medium; `dG` is in kJ/mol; the temperature is in K; time is in minutes.
+- **Model (instructor, November 21, 2026).** The course's gene-network balances:
+  transcription is `Vmax_X·G/(K_X + G)` times the control, translation is
+  `Vmax_L·m/(K_L + m)`, and mRNA and protein are lost by degradation and dilution.
+  There is no translational control. The control follows the active-state rule:
+  the empty promoter has weight 1, and each listed state has weight
+  `W = exp(−dG/RT)` times the bound fraction of each regulator bound in it.
+- **Values.** The gene constants, half-lives, doubling time, temperature, the leak
+  and activated-state `dG`, and `K_I` are the course values. The X-bound state's
+  `dG`, K(X), n(X), and the partner K were tuned with the Git-ignored
   `instructor/tune_parameters.jl`; the tuning record is in the solution README,
   because it gives the answers.
-- **Time step (instructor, November 20, 2026).** Every report run uses 0.1 min,
-  and the README states it. To keep PS6 short, there is no question about the
-  time step and no step-size table. The tests still call `simulate` at steps of
-  0.1 to 5 min, because they check the recursion, not its accuracy.
+- **Solver.** `simulate` uses `Tsit5` with `reltol = 1e-8`, `abstol = 1e-12`,
+  `saveat = 1.0`, and `tstops` at the pulse edges inside the run. The tests compare
+  with stored values at `rtol = 1e-6`. Checked by hand: a `simulate` without
+  `tstops` fails the half-minute pulse case, default tolerances fail 8 cases, and a
+  control read only at `x0` fails 3 cases.
 - **Remembered.** A pulse is remembered if protein Y is above the middle steady
   state at 900 min. The middle steady state is found on the line `p_Y = p_Z` by a
   scan and bisection in the supplied code.
@@ -109,8 +119,7 @@ so they stay off GitHub until the reference solution is released.
 - **Verified facts.** Alon (2019), *An Introduction to Systems Biology*, 2nd
   edition, chapter 5, checked against the Taylor & Francis listing. Alon (2007),
   *Nature Reviews Genetics* 8(6), 450–461, DOI 10.1038/nrg2102: volume, issue, and
-  DOI checked; the motif text was not fetched (the server refused). Gu, Goel, and
-  Ré (2022), ICLR, arXiv 2111.00396.
+  DOI checked; the motif text was not fetched (the server refused).
 
 ## Preparing a release
 

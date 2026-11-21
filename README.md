@@ -41,15 +41,17 @@ has three genes, X, Y, and Z, and one **inducer**, I: the signal molecule.
 - Protein Y activates gene Z, and protein Z activates gene Y. These two
   activations form the **Y–Z loop**.
 
-We'll model the circuit as a state space model with six states: the mRNA and
-protein levels of genes X, Y, and Z. The input is the **control** of each gene, a
-number from `0` to `1` that gives the fraction of the gene's full transcription
-rate. We'll simulate the model with the bilinear discretization, which turns it
-into a recursion that steps the state forward by a fixed time step.
+We'll model the circuit with six balances: one for the mRNA level and one for
+the protein level of each gene. The transcription rate of each gene is set by its
+**control**, a number from `0` to `1`: the probability that the gene's promoter is
+in a state that transcribes. The translation rate of each mRNA saturates as the
+mRNA level rises. Degradation and dilution remove mRNA and protein. We'll solve
+the balances with an ODE solver, the `Tsit5` method from the OrdinaryDiffEq
+package.
 
-You will write the control of a gene, the bilinear discretization, and the
-recursion. You will then use them to find how long a pulse of inducer must last
-for the cells to remember it.
+You will write the control of a gene, the balances, and the function that solves
+them. You will then use them to find how long a pulse of inducer must last for the
+cells to remember it.
 
 ## Setup
 
@@ -84,39 +86,44 @@ minutes. The [data notes](data/README.md) give the sources of the values.
 |---|---|
 | `mRNA_half_life`, `protein_half_life` | The half-life of each mRNA and each protein to degradation (min). |
 | `doubling_time` | The time the cells take to double (min), which sets the dilution by growth. |
-| `Vmax_X` | The transcription rate of a gene when its control is `1` (nmol/gDW/min). |
-| `k_L` | The translation rate constant: the proteins made per mRNA per minute (1/min). |
-| `W`, `active` | The weight of a promoter state, and whether RNA polymerase transcribes the gene in that state. |
-| `regulator`, `K`, `n` | The transcription factor bound in a promoter state, the level at which half of the promoters have it bound (nmol/gDW), and the binding order. |
+| `temperature` | The absolute temperature (K), which sets the weight of each promoter state. |
+| `[inputs.I]`, `initial` | The inducer, and its concentration before the first pulse, `0.0` µM. |
+| `G` | The gene level (nmol/gDW). |
+| `Vmax_X`, `K_X` | The transcription kinetic limit (nmol/gDW/min) and the transcription saturation constant (nmol/gDW). With `G`, they set the transcription rate of a gene when its control is `1`. |
+| `Vmax_L`, `K_L` | The translation kinetic limit (nmol/gDW/min) and the translation saturation constant: the mRNA level at which translation runs at half its kinetic limit (nmol/gDW). |
+| `dG`, `active` | The Gibbs energy of a promoter state relative to the empty promoter (kJ/mol), and whether RNA polymerase transcribes the gene in that state. |
+| `regulator`, `K`, `n` | The transcription factor bound in a promoter state, the level of the available transcription factor at which its bound fraction is one half (nmol/gDW), and the binding order. |
 | `inducer`, `K_I`, `n_I` | The inducer the transcription factor must carry to bind, the inducer concentration at which half of the transcription factor carries it (µM), and the binding order of the inducer. |
 
 A **promoter state** is one arrangement of proteins bound to the promoter. The
 promoter of gene Y has three listed states: RNA polymerase bound alone, which
-gives a small leak of transcription; protein X bound; and protein Z bound. The
-promoter of gene Z has the same states, with protein Y in place of protein Z.
-Gene X has no promoter states, so its control is always `1`.
+gives a small leak of transcription; RNA polymerase with protein X bound; and RNA
+polymerase with protein Z bound. The promoter of gene Z has the same states, with
+protein Y in place of protein Z. Gene X lists one state, RNA polymerase bound
+alone, so gene X is always transcribed. The loader turns the `dG` of each state
+into the state's weight `W`: the lower the Gibbs energy of a state, the larger its
+weight.
 
 The state of the circuit is the vector `x = [m_X, m_Y, m_Z, p_X, p_Y, p_Z]`: the
 three mRNA levels, then the three protein levels. The supplied code also gives you
 these functions:
 
-- `state_matrices(network)` returns the matrices `A` and `B` of the state space
-  model.
-- `bound_fraction(network, b, x, I)` returns the fraction of promoters that have
-  the regulator `b` bound.
+- `bound_fraction(network, b, x, I)` returns the bound fraction of the regulator
+  `b` at the state `x` and the inducer concentration `I`.
 - `inducer(pulses, t)` returns the inducer concentration at time `t`. Each pulse
   is a tuple `(start, stop, level)`: for example, `(60.0, 90.0, 5.0)` is 5 µM of
   inducer from 60 to 90 min.
 
-## Part 1: The control and the discretization
+## Part 1: The control and the balances
 
 Implement in [src/Compute.jl](src/Compute.jl):
 
 1. **`control(network, j, x, I)`:** returns the control of gene `j` at the state
    `x` and the inducer concentration `I`, from the weights of the gene's promoter
    states.
-2. **`discretize(A, B, Δt)`:** returns the matrices `(Ā, B̄)` of the bilinear
-   discretization of the state space model for the time step `Δt`.
+2. **`balances!(dx, x, parameters, t)`:** computes the rate of change of every
+   mRNA and protein level at the state `x` and the time `t`, and stores it in
+   `dx`. The argument `parameters` holds the network and the inducer pulses.
 
 The description above each function in [src/Compute.jl](src/Compute.jl) gives the
 formula, the inputs it must reject, and the error to throw. Test with:
@@ -125,16 +132,16 @@ formula, the inputs it must reject, and the error to throw. Test with:
 julia --startup-file=no --project=. testme_part_1.jl
 ```
 
-## Part 2: The recursion
+## Part 2: The ODE solver
 
 Part 2 uses your Part 1 functions, so finish Part 1 first.
 
 Implement in [src/Compute.jl](src/Compute.jl):
 
-1. **`simulate(network, x0, pulses; Δt, T)`:** runs the recursion from the state
-   `x0` at time `0` to the time `T`, while the inducer follows `pulses`, and
-   returns the times and the states. Each step uses the inducer concentration and
-   the control from the start of the step.
+1. **`simulate(network, x0, pulses; T)`:** solves the balances with the `Tsit5`
+   method from the state `x0` at time `0` to the time `T`, while the inducer
+   follows `pulses`, and returns the state every minute. The inducer jumps at the
+   start and the stop of each pulse, so the solver must stop at those times.
 
 When `simulate` is done, run:
 
@@ -147,13 +154,14 @@ julia --startup-file=no --project=. runmotif.jl
 
 With no inducer, the memory motif has three **steady states**, where every level
 stays constant: a low state, a middle state, and a high state. The low and high
-states are stable. The middle state is not: protein Y moves away from it, toward
-the low state or toward the high state. Every run in `runmotif.jl` starts at the
-low state of the memory motif at 0 min and ends at 900 min, with a time step of
-0.1 min. Each pulse of inducer starts at 60 min. Genes Y and Z have the same
-parameters and start at the same levels, so protein Y also gives the level of
-protein Z, which the company reads as fluorescence. A pulse is **remembered** if
-protein Y is above the middle state at 900 min.
+states are stable, so the memory motif is **bistable**. The middle state is
+unstable: protein Y moves away from it, toward the low state or toward the high
+state. Every run in `runmotif.jl` starts at the low state of the memory motif at 0
+min and ends at 900 min, and each pulse of inducer starts at 60 min. Your
+`simulate` solves each run with the settings in its description. Genes Y and Z
+have the same parameters and start at the same levels, so protein Y also gives the
+level of protein Z, which the company reads as fluorescence. A pulse is
+**remembered** if protein Y is above the middle state at 900 min.
 
 The script `runmotif.jl` uses your three functions to run the analyses, prints the
 main results, and writes these files to the `outputs/` directory:
@@ -205,11 +213,6 @@ Hall/CRC, chapter 5, "Positive Feedback, Bistability and Memory"**
 ([DOI: 10.1201/9780429283321](https://doi.org/10.1201/9780429283321)), and
 **Alon (2007), "Network motifs: theory and experimental approaches," Nature
 Reviews Genetics, 8(6), 450–461**
-([DOI: 10.1038/nrg2102](https://doi.org/10.1038/nrg2102)). The bilinear
-discretization of a state space model is used in **Gu, Goel, and Ré (2022),
-"Efficiently Modeling Long Sequences with Structured State Spaces," International
-Conference on Learning Representations (ICLR)**
-([arXiv: 2111.00396](https://arxiv.org/abs/2111.00396)).
+([DOI: 10.1038/nrg2102](https://doi.org/10.1038/nrg2102)).
 
-The [data notes](data/README.md) give the sources of the rate constants and
-half-lives. The company and its sensor are made up for this problem set.
+The [data notes](data/README.md) give the sources of the parameter values. The company and its sensor are made up for this problem set.

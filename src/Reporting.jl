@@ -15,7 +15,6 @@ const FINAL_TIME = 900.0;     # every report run ends at 900 min
 const MAIN_LEVEL = 5.0;       # the main inducer level (µM)
 const LONG_PULSE = 60.0;      # the long pulse in memory.csv lasts 60 min
 const SHORT_PULSE = 10.0;     # the short pulse in memory.csv lasts 10 min
-const MAIN_STEP = 0.1;        # the time step of every report run (min)
 const LEVELS = [2.0, 5.0, 10.0, 20.0, 50.0]; # inducer levels in pulse-threshold.csv (µM)
 const LONGEST_SCAN = 600;     # the longest pulse tried in pulse-threshold.csv (min)
 const NO_PULSES = Tuple{Float64,Float64,Float64}[];
@@ -51,10 +50,9 @@ function write_outputs(assignment, directory)
     no_loop = assignment.load_network(joinpath(data, "memory-no-loop.toml"));
 
     # Call each student function once on a tiny input, so an unfinished one stops here -
-    (A, B) = assignment.state_matrices(memory);
     assignment.control(memory, 2, zeros(6), 0.0);
-    assignment.discretize(A, B, 1.0);
-    check_run(assignment.simulate(memory, zeros(6), NO_PULSES; Δt = 1.0, T = 2.0), 6, 3);
+    assignment.balances!(zeros(6), zeros(6), (network = memory, pulses = NO_PULSES), 0.0);
+    check_run(assignment.simulate(memory, zeros(6), NO_PULSES; T = 2.0), 6, 3);
     mkpath(directory);
 
     # The steady states with no inducer -
@@ -86,7 +84,7 @@ function write_outputs(assignment, directory)
     # Print the summary -
     println();
     @printf("Steady states (p_Y, nmol/gDW): low %.4f, middle %.4f, high %.4f.\n", states[1].x[5], middle, states[3].x[5]);
-    @printf("Shortest remembered pulse at %.0f µM and Δt = %g min: %d min.\n", MAIN_LEVEL, MAIN_STEP, shortest[k]);
+    @printf("Shortest remembered pulse at %.0f µM: %d min.\n", MAIN_LEVEL, shortest[k]);
     println("Reports written to ", directory);
 
     return (middle_pY = middle, shortest_at_main_level = shortest[k]);
@@ -131,35 +129,30 @@ end
 
 
 """
-    balances(assignment, network, A, B, x, I) -> Array{Float64,1}
+    rates(assignment, network, x) -> Array{Float64,1}
 
-Return the right-hand side `A x + B u` of the mRNA and protein balances at the state `x` and the
-inducer concentration `I`, with the control `u` from the student's `control`.
+Return the rate of change of every state at the state `x` with no inducer, from the student's
+`balances!` at time 0.
 """
-function balances(assignment, network, A, B, x, I)
+function rates(assignment, network, x)
 
-    # The control of each gene at this state -
-    N = length(network.genes);
-    u = zeros(N);
-    for j in 1:N
-        u[j] = assignment.control(network, j, x, I);
-    end
+    # The balances with no inducer pulses -
+    dx = zeros(length(x));
+    assignment.balances!(dx, copy(x), (network = network, pulses = NO_PULSES), 0.0);
 
-    # The rate of change of each state -
-    return A * x + B * u;
+    return dx;
 end
 
 
 """
-    jacobian(assignment, network, x, I) -> Array{Float64,2}
+    jacobian(assignment, network, x) -> Array{Float64,2}
 
-Return the Jacobian of the balances at the state `x` and the inducer concentration `I`, by central
-differences: column `c` is the change in the balances per unit change in state `c`.
+Return the Jacobian of the balances at the state `x` with no inducer, by central differences:
+column `c` is the change in the balances per unit change in state `c`.
 """
-function jacobian(assignment, network, x, I)
+function jacobian(assignment, network, x)
 
     # Setup -
-    (A, B) = assignment.state_matrices(network);
     n = length(x);
     J = zeros(n, n);
 
@@ -171,7 +164,7 @@ function jacobian(assignment, network, x, I)
         down = copy(x);
         up[c] = up[c] + step;
         down[c] = down[c] - step;
-        J[:, c] = (balances(assignment, network, A, B, up, I) - balances(assignment, network, A, B, down, I)) / (2 * step);
+        J[:, c] = (rates(assignment, network, up) - rates(assignment, network, down)) / (2 * step);
     end
 
     return J;
@@ -179,43 +172,65 @@ end
 
 
 """
-    line_state(network, p) -> Array{Float64,1}
+    largest_protein_level(network) -> Float64
+
+Return the protein level of gene Y when its mRNA is far above `K_L`, so that translation runs at
+`Vmax_L`: no steady state can reach this level (nmol/gDW).
+"""
+function largest_protein_level(network)
+
+    # Translation at its kinetic limit, balanced by degradation and dilution -
+    γ_p = network.θ_p + network.μ;
+    return network.genes[2].Vmax_L / γ_p;
+end
+
+
+"""
+    line_state(assignment, network, p) -> Array{Float64,1}
 
 Return the state of the memory motif with no inducer in which proteins Y and Z are both at the
-level `p` (nmol/gDW), gene X is fully on, and each mRNA has the level that makes its protein
-level steady.
+level `p` (nmol/gDW), and every mRNA and protein X are steady except the mRNA of Y and Z, which
+have the level that makes their protein level steady. `p` must be below
+`largest_protein_level(network)`.
 """
-function line_state(network, p)
+function line_state(assignment, network, p)
 
     # Loss rates -
     γ_m = network.θ_m + network.μ;
     γ_p = network.θ_p + network.μ;
 
-    # Gene X is always fully on; the mRNA of Y and Z sets their protein level p -
-    m_X = network.genes[1].Vmax_X / γ_m;
-    p_X = network.genes[1].k_L * m_X / γ_p;
-    m_Y = γ_p * p / network.genes[2].k_L;
-    m_Z = γ_p * p / network.genes[3].k_L;
+    # Gene X: its promoter state binds no regulator, so its control does not depend on the state -
+    X = network.genes[1];
+    r_X = X.Vmax_X * X.G / (X.K_X + X.G);
+    u_X = assignment.control(network, 1, zeros(6), 0.0);
+    m_X = r_X * u_X / γ_m;
+    p_X = X.Vmax_L * m_X / (X.K_L + m_X) / γ_p;
 
-    return [m_X, m_Y, m_Z, p_X, p, p];
+    # Genes Y and Z: the mRNA level whose translation balances the loss of protein at level p -
+    Y = network.genes[2];
+    m = γ_p * p * Y.K_L / (Y.Vmax_L - γ_p * p);
+
+    return [m_X, m, m, p_X, p, p];
 end
 
 
 """
     line_residual(assignment, network, p) -> Float64
 
-Return the protein level of Y that its control sustains at the state `line_state(network, p)`,
-minus `p`. A zero of this function is a steady state of the memory motif with `p_Y = p_Z = p`.
+Return the mRNA level of Y that its transcription sustains at the state
+`line_state(assignment, network, p)`, minus the mRNA level of Y in that state. A zero of this
+function is a steady state of the memory motif with `p_Y = p_Z = p`.
 """
 function line_residual(assignment, network, p)
 
-    # The protein level of Y when gene Y is fully on -
+    # The loss rate of mRNA and the transcription rate of gene Y at a control of 1 -
     γ_m = network.θ_m + network.μ;
-    γ_p = network.θ_p + network.μ;
-    full = network.genes[2].k_L * network.genes[2].Vmax_X / (γ_m * γ_p);
+    Y = network.genes[2];
+    r_X = Y.Vmax_X * Y.G / (Y.K_X + Y.G);
 
-    # The level the control sustains, minus p -
-    return full * assignment.control(network, 2, line_state(network, p), 0.0) - p;
+    # The level the control sustains, minus the level in the state -
+    x = line_state(assignment, network, p);
+    return r_X * assignment.control(network, 2, x, 0.0) / γ_m - x[2];
 end
 
 
@@ -233,15 +248,11 @@ A negative value means the steady state is stable.
 """
 function steady_states(assignment, network)
 
-    # The protein level of Y when gene Y is fully on -
-    γ_m = network.θ_m + network.μ;
-    γ_p = network.θ_p + network.μ;
-    full = network.genes[2].k_L * network.genes[2].Vmax_X / (γ_m * γ_p);
-
     # The grid: 4000 levels of p_Y, evenly spaced on a log scale, from a millionth of the
-    # fully on level to twice that level -
+    # largest protein level to just below it -
+    largest = largest_protein_level(network);
     points = 4000;
-    log_levels = range(log(1e-6 * full), log(2.0 * full); length = points);
+    log_levels = range(log(1e-6 * largest), log(0.999 * largest); length = points);
     grid = zeros(points);
     for k in 1:points
         grid[k] = exp(log_levels[k]);
@@ -267,10 +278,10 @@ function steady_states(assignment, network)
                     b = c;
                 end
             end
-            x = line_state(network, (a + b) / 2);
+            x = line_state(assignment, network, (a + b) / 2);
 
             # The largest real part of the eigenvalues of the Jacobian at this steady state -
-            J = jacobian(assignment, network, x, 0.0);
+            J = jacobian(assignment, network, x);
             eigenvalues = eigvals(J);
             λ = -Inf;
             for i in 1:length(eigenvalues)
@@ -287,19 +298,19 @@ end
 
 
 """
-    run_pulse(assignment, network, x0, duration, level; Δt = MAIN_STEP) -> NamedTuple
+    run_pulse(assignment, network, x0, duration, level) -> NamedTuple
 
 Simulate one inducer pulse of `level` µM that starts at 60 min and lasts `duration` min, from
-`x0` to 900 min, with the student's `simulate` and the time step `Δt` (min).
+`x0` to 900 min, with the student's `simulate`.
 """
-function run_pulse(assignment, network, x0, duration, level; Δt = MAIN_STEP)
+function run_pulse(assignment, network, x0, duration, level)
 
     # The pulse, then the run from a copy of x0 -
     pulses = [(PULSE_START, PULSE_START + duration, level)];
-    result = assignment.simulate(network, copy(x0), pulses; Δt = Δt, T = FINAL_TIME);
+    result = assignment.simulate(network, copy(x0), pulses; T = FINAL_TIME);
 
-    # Check that the run has one time and one state per step, plus the start -
-    return check_run(result, length(x0), round(Int64, FINAL_TIME / Δt) + 1);
+    # Check that the run has one time and one state per minute, from 0 to 900 min -
+    return check_run(result, length(x0), round(Int64, FINAL_TIME) + 1);
 end
 
 
@@ -328,8 +339,8 @@ end
     write_memory(directory, assignment, memory, no_loop, low, middle)
 
 Write `memory.csv` and `memory.png`: the 60-min pulse at 5 µM in both networks and the 10-min
-pulse at 5 µM in the memory motif, from 0 to 900 min, starting at the low steady state. The runs
-take steps of `MAIN_STEP`; the table keeps the state every minute, and the plot uses every step.
+pulse at 5 µM in the memory motif, from 0 to 900 min, starting at the low steady state. The table
+and the plot use the state at every minute.
 """
 function write_memory(directory, assignment, memory, no_loop, low, middle)
 
@@ -340,10 +351,9 @@ function write_memory(directory, assignment, memory, no_loop, low, middle)
     pulses = [(PULSE_START, PULSE_START + LONG_PULSE, MAIN_LEVEL)];
 
     # The table, with one row per minute -
-    per_minute = round(Int64, 1.0 / MAIN_STEP); # steps in one minute
     io = open(joinpath(directory, "memory.csv"), "w");
     println(io, "time_min,long_pulse_inducer_uM,pX_nmol_per_gDW,pY_nmol_per_gDW,pZ_nmol_per_gDW,pY_no_loop_nmol_per_gDW,pZ_no_loop_nmol_per_gDW,pY_short_pulse_nmol_per_gDW,pZ_short_pulse_nmol_per_gDW");
-    for k in 1:per_minute:length(long.t)
+    for k in 1:length(long.t)
         @printf(io, "%.0f,%.1f,%.4f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n", long.t[k], assignment.inducer(pulses, long.t[k]),
             long.x[4, k], long.x[5, k], long.x[6, k], cut.x[5, k], cut.x[6, k], short.x[5, k], short.x[6, k]);
     end
@@ -369,8 +379,8 @@ end
     write_pulse_threshold(directory, assignment, memory, low, middle) -> Array{Int64,1}
 
 Write `pulse-threshold.csv`. For each inducer level in `LEVELS`, try pulses of 1, 2, ..., 600 min
-with steps of `MAIN_STEP` and find the shortest one that is remembered: protein Y is above its
-middle steady state at 900 min. Return the shortest remembered pulse at each level (`0` if none).
+and find the shortest one that is remembered: protein Y is above its middle steady state at
+900 min. Return the shortest remembered pulse at each level (`0` if none).
 """
 function write_pulse_threshold(directory, assignment, memory, low, middle)
 

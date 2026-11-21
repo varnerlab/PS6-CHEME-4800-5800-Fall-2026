@@ -11,3 +11,4 @@ instructor/plans/
 .claude/
 instructor/tune_parameters.jl
 instructor/make_stored_values.jl
+instructor/check_against_course.jl

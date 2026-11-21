@@ -1,13 +1,12 @@
 # Student implementation | Complete the three functions in Parts 1 and 2.
 # Already written for you: Network.jl reads a network file with load_network(path) and holds
-# state_matrices, bound_fraction, and inducer; Reporting.jl runs the analyses and writes the
-# plots and tables.
+# bound_fraction and inducer; Reporting.jl runs the analyses and writes the plots and tables.
 
 # Do not change the function names, arguments, or return types.
 # Replace each placeholder error(...) with your implementation and return value.
 # The state x lists the mRNA levels of the N genes, then their protein levels, in nmol/gDW.
-# For the memory motif, x = [m_X, m_Y, m_Z, p_X, p_Y, p_Z]. The input u lists the control of
-# each gene's transcription, a number from 0 to 1. The inducer I is in µM, and time is in min.
+# For the memory motif, x = [m_X, m_Y, m_Z, p_X, p_Y, p_Z]. The inducer I is in µM, and time is
+# in min.
 
 # ----------------------------------------------------------------------------
 # Part 1a: The control of one gene
@@ -16,21 +15,22 @@
 """
     control(network::MyGeneNetwork, j::Int64, x::Array{Float64,1}, I::Float64) -> Float64
 
-Compute the control ū_j of gene `j`: the fraction of the gene's full transcription rate,
-`Vmax_X`, at the state `x` and the inducer concentration `I`.
+Compute the control ū_j of gene `j`: the probability that the promoter of gene `j` is in a state
+that transcribes, at the state `x` and the inducer concentration `I`.
 
 The control comes from the promoter states of gene `j`, `network.genes[j].promoter`. The weight
 of state s is its `W` times the bound fraction of each regulator `b` bound in that state:
 
     weight_s = W_s × f_1 × f_2 × ...,   where f = bound_fraction(network, b, x, I)
 
-A state with no bound regulators has the weight `W_s`. The bare promoter, with nothing bound,
-has the weight 1 and is not listed in the file. The control is the summed weight of the active
-states divided by 1 plus the summed weight of all the listed states:
+The loader stores `W_s = exp(−dG_s/RT)` for each state. A state with no bound regulators, such as
+RNA polymerase bound alone, has the weight `W_s`. The empty promoter has the weight 1 and is not
+listed in the file. The control is the summed weight of the active states divided by 1 plus the
+summed weight of all the listed states:
 
     ū_j = (sum of weight_s over the active states) / (1 + sum of weight_s over all states)
 
-A gene with no promoter states is always transcribed at its full rate, so its control is `1.0`.
+A gene with no promoter states is not regulated, so its control is `1.0`.
 
 ### Arguments
 - `network::MyGeneNetwork`: the network, from `load_network(path)`.
@@ -49,8 +49,8 @@ Throws an `ArgumentError` if `j` is not from 1 to `N`, or if `x` does not have l
 ```julia
 network = load_network(joinpath("data", "memory.toml"));
 x = zeros(6);                # no mRNA and no protein
-control(network, 1, x, 0.0)  # 1.0: gene X has no promoter states
-control(network, 2, x, 0.0)  # 0.005/1.005: only the leak state of gene Y has weight
+control(network, 1, x, 0.0)  # about 0.909: gene X has one active state, with W about 10
+control(network, 2, x, 0.0)  # about 0.005: only the leak state of gene Y has weight
 ```
 """
 function control(network::MyGeneNetwork, j::Int64, x::Array{Float64,1}, I::Float64)::Float64
@@ -59,104 +59,106 @@ function control(network::MyGeneNetwork, j::Int64, x::Array{Float64,1}, I::Float
 end
 
 # ----------------------------------------------------------------------------
-# Part 1b: The bilinear discretization
+# Part 1b: The mRNA and protein balances
 # ----------------------------------------------------------------------------
 
 """
-    discretize(A::Array{Float64,2}, B::Array{Float64,2}, Δt::Float64) -> Tuple{Array{Float64,2},Array{Float64,2}}
+    balances!(dx::Array{Float64,1}, x::Array{Float64,1}, parameters::NamedTuple, t::Float64) -> Nothing
 
-Compute the bilinear discretization `(Ā, B̄)` of the state space model `dx/dt = A x + B u` for the
-time step `Δt` (min):
+Compute the rate of change of every mRNA and protein level at the state `x` and the time `t`
+(min), and store it in `dx` (nmol/gDW/min). The `!` at the end of the name is a Julia convention:
+the function changes its argument `dx`.
 
-    Ā = (I - (Δt/2) A)⁻¹ (I + (Δt/2) A)
-    B̄ = (I - (Δt/2) A)⁻¹ Δt B
+`parameters` is the named tuple `(network = network, pulses = pulses)`. The inducer
+concentration at time `t` is `I = inducer(pulses, t)`. For each gene j, with mRNA level `m_j` and
+protein level `p_j`:
 
-In this function, `I` is the identity matrix (`I` from LinearAlgebra), not the inducer. The
-recursion `x_k = Ā x_(k-1) + B̄ u_k` then steps the state forward by `Δt`. Solve with the
-backslash operator instead of forming the inverse of `I - (Δt/2) A`.
+    r_X,j = Vmax_X × G / (K_X + G)                transcription rate at a control of 1
+    r_L,j = Vmax_L × m_j / (K_L + m_j)            translation rate
+    dm_j/dt = r_X,j × control(network, j, x, I) − (θ_m + μ) × m_j
+    dp_j/dt = r_L,j − (θ_p + μ) × p_j
+
+The mRNA balance of gene j goes in `dx[j]`, and the protein balance in `dx[N + j]`. The argument
+order (`dx`, `x`, parameters, `t`) is the one `ODEProblem` expects.
 
 ### Arguments
-- `A::Array{Float64,2}`: the square state matrix, `n × n`.
-- `B::Array{Float64,2}`: the input matrix, `n × m`.
-- `Δt::Float64`: the time step (min), greater than 0.
+- `dx::Array{Float64,1}`: the rates of change, of length `2N`; the function overwrites it.
+- `x::Array{Float64,1}`: the state, of length `2N`: the mRNA levels, then the protein levels
+  (nmol/gDW).
+- `parameters::NamedTuple`: `(network = network, pulses = pulses)`, with the network from
+  `load_network(path)` and the inducer pulses as in `simulate`.
+- `t::Float64`: the time (min).
 
 ### Returns
-The tuple `(Ā, B̄)` of new matrices: `Ā` is `n × n` and `B̄` is `n × m`. Leave `A` and `B`
-unchanged.
+`nothing`. Leave `x` unchanged.
 
 ### Errors
-Throws an `ArgumentError` if `Δt ≤ 0`. Throws a `DimensionMismatch` if `A` is not square or if
-`B` does not have as many rows as `A`.
-
-### Example
-```julia
-(A, B) = state_matrices(load_network(joinpath("data", "memory.toml")));
-(Ā, B̄) = discretize(A, B, 0.1); # steps of 0.1 min
-```
-"""
-function discretize(A::Array{Float64,2}, B::Array{Float64,2}, Δt::Float64)::Tuple{Array{Float64,2},Array{Float64,2}}
-
-    error("Complete discretize in src/Compute.jl");
-end
-
-# ----------------------------------------------------------------------------
-# Part 2: The recursion
-# ----------------------------------------------------------------------------
-
-"""
-    simulate(network::MyGeneNetwork, x0::Array{Float64,1}, pulses::Array{Tuple{Float64,Float64,Float64},1};
-        Δt::Float64, T::Float64) -> NamedTuple
-
-Simulate the network from the state `x0` at time 0 to the time `T` (min) with the bilinear
-recursion and the time step `Δt` (min), while the inducer follows `pulses`.
-
-Carry out these steps, in this order:
-
-1. Check the arguments (see Errors) before any other work.
-2. Build `A` and `B` with `state_matrices(network)`, then `(Ā, B̄)` with your
-   `discretize(A, B, Δt)`.
-3. The number of steps is `K = round(Int64, T / Δt)`, and the times are
-   `t = [0, Δt, 2Δt, ..., KΔt]`, with `t[k + 1] = k * Δt`.
-4. Store `x0` as column 1 of the states. Then, for each step `k = 1, 2, ..., K`:
-   - the inducer over the step is its value at the start of the step,
-     `I_k = inducer(pulses, t[k])`;
-   - the control of each gene `j = 1, 2, ..., N` is `u[j] = control(network, j, x, I_k)`, where
-     `x` is the state at the start of the step (column `k`);
-   - the state at the end of the step (column `k + 1`) is `Ā x + B̄ u`.
-
-The control is held over each step: it uses the state at the start of the step.
-
-### Arguments
-- `network::MyGeneNetwork`: the network, from `load_network(path)`.
-- `x0::Array{Float64,1}`: the state at time 0, of length `2N` (nmol/gDW).
-- `pulses::Array{Tuple{Float64,Float64,Float64},1}`: the inducer pulses, each
-  `(start, stop, level)` in min, min, and µM (see `inducer`). For no inducer, pass
-  `Tuple{Float64,Float64,Float64}[]`.
-- `Δt::Float64`: the time step (min). It has no default.
-- `T::Float64`: the final time (min), a whole number of steps. It has no default.
-
-### Returns
-A named tuple `(t = t, x = X)`:
-- `t::Array{Float64,1}`: the `K + 1` times (min), from `0.0` to `T`.
-- `x::Array{Float64,2}`: the states, `2N × (K + 1)`. Column `k` is the state at time `t[k]`, and
-  column 1 is `x0`.
-Leave `x0` and `pulses` unchanged.
-
-### Errors
-Throws an `ArgumentError`, before any other work, if `Δt ≤ 0`, if `T < Δt`, if `T` is not a
-whole number of steps (`abs(T / Δt - K) > 1e-9`), or if `x0` does not have length `2N`.
+Throws an `ArgumentError` if `x` or `dx` does not have length `2N`.
 
 ### Example
 ```julia
 network = load_network(joinpath("data", "memory.toml"));
-x0 = zeros(6);                # start with no mRNA and no protein
-pulses = [(60.0, 90.0, 5.0)]; # 5 µM of inducer from 60 to 90 min
-result = simulate(network, x0, pulses; Δt = 0.1, T = 900.0);
-result.x[5, end]              # protein Y at 900 min
+parameters = (network = network, pulses = [(60.0, 120.0, 5.0)]);
+dx = zeros(6);
+balances!(dx, zeros(6), parameters, 70.0); # dx[4] = 0.0: protein X needs mRNA X first
+```
+"""
+function balances!(dx::Array{Float64,1}, x::Array{Float64,1}, parameters::NamedTuple, t::Float64)::Nothing
+
+    error("Complete balances! in src/Compute.jl");
+end
+
+# ----------------------------------------------------------------------------
+# Part 2: The ODE solver
+# ----------------------------------------------------------------------------
+
+"""
+    simulate(network::MyGeneNetwork, x0::Array{Float64,1}, pulses::Array{Tuple{Float64,Float64,Float64},1}; T::Float64) -> NamedTuple
+
+Solve the mRNA and protein balances from the state `x0` at time 0 to the final time `T` (min),
+with the inducer pulses `pulses`, and return the state once per minute.
+
+Each pulse is a tuple `(start, stop, level)`: the inducer is at `level` (µM) from `start` up to,
+but not including, `stop` (min). Overlapping pulses add, as in `inducer`. With no pulses, pass
+`Tuple{Float64,Float64,Float64}[]`.
+
+Build an `ODEProblem` from `balances!`, a copy of `x0`, the time span `(0.0, T)`, and the
+parameters `(network = network, pulses = pulses)`. Solve it with `solve` and the `Tsit5()`
+method, with these settings:
+
+- `tstops`: every pulse start and stop that lies strictly between 0 and `T`. The inducer jumps at
+  these times, so the solver must stop at each one.
+- `saveat = 1.0`, so that the solver returns the state once per minute.
+- `reltol = 1e-8` and `abstol = 1e-12`.
+
+### Arguments
+- `network::MyGeneNetwork`: the network, from `load_network(path)`.
+- `x0::Array{Float64,1}`: the state at time 0, of length `2N` (nmol/gDW).
+- `pulses::Array{Tuple{Float64,Float64,Float64},1}`: the inducer pulses.
+- `T::Float64` (keyword): the final time, a positive whole number of minutes.
+
+### Returns
+The named tuple `(t = t, x = x)`:
+- `t::Array{Float64,1}`: the times `0.0, 1.0, …, T`, of length `T + 1` (min).
+- `x::Array{Float64,2}`: the state at each time, one column per time, of size `2N × (T + 1)`
+  (nmol/gDW). Column 1 is `x0`.
+
+Leave `x0` and `pulses` unchanged.
+
+### Errors
+Throws an `ArgumentError` if `T` is not a positive whole number of minutes, if `x0` does not have
+length `2N`, or if a pulse stops at or before it starts or has a negative level. Throws an
+`ErrorException` if the solver stops before `T`.
+
+### Example
+```julia
+network = load_network(joinpath("data", "memory.toml"));
+run = simulate(network, zeros(6), [(60.0, 120.0, 5.0)]; T = 900.0);
+run.x[5, end] # protein Y at 900 min (nmol/gDW)
 ```
 """
 function simulate(network::MyGeneNetwork, x0::Array{Float64,1}, pulses::Array{Tuple{Float64,Float64,Float64},1};
-    Δt::Float64, T::Float64)::NamedTuple
+    T::Float64)::NamedTuple
 
     error("Complete simulate in src/Compute.jl");
 end

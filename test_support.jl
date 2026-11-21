@@ -9,7 +9,8 @@ using ..MemoryMotif; # implementation loaded by the current test suite
 
 export throws_type, all_between, toy_network, memory_network, no_loop_network;
 export TOY_GENES, TWO_GENES, NO_PULSES;
-export LOW_STATE, STORED_CONTROL, LONG_PULSE_PY, LONG_PULSE_PY_AT_70_120_200, SHORT_PULSE_PY, NO_LOOP_PY;
+export LOW_STATE, STORED_CONTROL, STORED_BALANCES;
+export LONG_PULSE_PY, LONG_PULSE_PY_AT_70_120_200, SHORT_PULSE_PY, NO_LOOP_PY, EDGE_PULSE_PY;
 
 # ----------------------------------------------------------------------------
 # Stored results | Made once with the reference solution
@@ -18,20 +19,26 @@ export LOW_STATE, STORED_CONTROL, LONG_PULSE_PY, LONG_PULSE_PY_AT_70_120_200, SH
 # ----------------------------------------------------------------------------
 
 # The low steady state of data/memory.toml with no inducer, [m_X, m_Y, m_Z, p_X, p_Y, p_Z] (nmol/gDW) -
-const LOW_STATE = [0.029344417131681514, 0.00014794489931833744, 0.00014794489931833744, 11.229927745853498, 0.05661760198735617, 0.05661760198735617];
+const LOW_STATE = [0.06295896471273761, 0.000352553116905135, 0.000352553116905135, 0.8887448708441775, 0.011164603267003845, 0.011164603267003845];
 
-# control(memory, 2, [0.03, 0.001, 0.002, 11.0, 0.8, 1.5], 5.0) -
-const STORED_CONTROL = 0.5403073972288875;
+# control(memory, 2, [0.03, 0.001, 0.002, 0.8, 0.3, 0.5], 5.0) -
+const STORED_CONTROL = 0.8345969770388688;
 
-# simulate(memory, LOW_STATE, [(60.0, 120.0, 5.0)]; Δt = 1.0, T = 900.0): p_Y at 900 min, then at 70, 120, and 200 min -
-const LONG_PULSE_PY = 10.185854027605;
-const LONG_PULSE_PY_AT_70_120_200 = [0.1774097208440748, 1.7095332559983787, 9.347252821155342];
+# balances! at the state [0.03, 0.001, 0.002, 0.8, 0.3, 0.5] and 70 min, with the pulse (60.0, 120.0, 5.0) (nmol/gDW/min) -
+const STORED_BALANCES = [0.009518922277003667, 0.016403128215544068, 0.012328509145562497, -0.006335326534550403, -0.008426605293593655, -0.013755252161017077];
 
-# simulate(memory, LOW_STATE, [(60.0, 70.0, 5.0)]; Δt = 1.0, T = 900.0): p_Y at 900 min -
-const SHORT_PULSE_PY = 0.05661760199135874;
+# simulate(memory, LOW_STATE, [(60.0, 120.0, 5.0)]; T = 900.0): p_Y at 900 min, then at 70, 120, and 200 min -
+const LONG_PULSE_PY = 0.8823134618527292;
+const LONG_PULSE_PY_AT_70_120_200 = [0.026829437228647085, 0.15329262609970745, 0.7889061459824324];
 
-# simulate(memory-no-loop, LOW_STATE, [(60.0, 120.0, 5.0)]; Δt = 1.0, T = 900.0): p_Y at 900 min -
-const NO_LOOP_PY = 0.05587028730739187;
+# simulate(memory, LOW_STATE, [(60.0, 70.0, 5.0)]; T = 900.0): p_Y at 900 min -
+const SHORT_PULSE_PY = 0.011164603266713183;
+
+# simulate(memory-no-loop, LOW_STATE, [(60.0, 120.0, 5.0)]; T = 900.0): p_Y at 900 min -
+const NO_LOOP_PY = 0.010924356108919604;
+
+# simulate(memory, LOW_STATE, [(60.25, 60.75, 50.0)]; T = 100.0): p_Y at 100 min -
+const EDGE_PULSE_PY = 0.012160329197283588;
 
 # ----------------------------------------------------------------------------
 # Test inputs
@@ -41,31 +48,42 @@ const NO_LOOP_PY = 0.05587028730739187;
 const NO_PULSES = Tuple{Float64,Float64,Float64}[];
 
 # Four genes. A and B have no promoter states. C has one active state that needs both A and B
-# bound (an AND gate): its weight is 2 f_A f_B. D has an active leak state with weight 0.5 and an
-# inactive state with A bound (a repressor) with weight 4 f_A. The state has length 8.
+# bound (an AND gate): its weight is W f_A f_B, with W about 2. D has an active leak state with
+# W about 0.5 and an inactive state with A bound (a repressor) with weight W f_A, W about 4.
+# The state has length 8.
 const TOY_GENES = """
 [parameters]
 mRNA_half_life = 2.5
 protein_half_life = 35.0
 doubling_time = 60.0
+temperature = 310.15
 
 [[genes]]
 name = "A"
-Vmax_X = 0.01
-k_L = 10.0
+G = 0.005
+Vmax_X = 0.04
+K_X = 0.005
+Vmax_L = 0.05
+K_L = 0.05
 
 [[genes]]
 name = "B"
-Vmax_X = 0.01
-k_L = 10.0
+G = 0.005
+Vmax_X = 0.04
+K_X = 0.005
+Vmax_L = 0.05
+K_L = 0.05
 
 [[genes]]
 name = "C"
-Vmax_X = 0.01
-k_L = 10.0
+G = 0.005
+Vmax_X = 0.04
+K_X = 0.005
+Vmax_L = 0.05
+K_L = 0.05
 
   [[genes.promoter]]
-  W = 2.0
+  dG = -1.79
   active = true
 
     [[genes.promoter.bound]]
@@ -80,15 +98,18 @@ k_L = 10.0
 
 [[genes]]
 name = "D"
-Vmax_X = 0.01
-k_L = 10.0
+G = 0.005
+Vmax_X = 0.04
+K_X = 0.005
+Vmax_L = 0.05
+K_L = 0.05
 
   [[genes.promoter]]
-  W = 0.5
+  dG = 1.79
   active = true
 
   [[genes.promoter]]
-  W = 4.0
+  dG = -3.57
   active = false
 
     [[genes.promoter.bound]]
@@ -103,16 +124,23 @@ const TWO_GENES = """
 mRNA_half_life = 2.5
 protein_half_life = 35.0
 doubling_time = 60.0
+temperature = 310.15
 
 [[genes]]
 name = "A"
-Vmax_X = 0.01
-k_L = 10.0
+G = 0.005
+Vmax_X = 0.04
+K_X = 0.005
+Vmax_L = 0.05
+K_L = 0.05
 
 [[genes]]
 name = "B"
+G = 0.01
 Vmax_X = 0.02
-k_L = 5.0
+K_X = 0.004
+Vmax_L = 0.1
+K_L = 0.02
 """;
 
 """

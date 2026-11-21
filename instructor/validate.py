@@ -52,12 +52,32 @@ def run(target, label, expected, script="check_submission.jl", args=(), cwd=None
     return result.stdout
 
 # The report list must agree in the reporting module, the checker, and this script.
+# The repository goes public, so no tracked file may name a lecture folder or say that the
+# reference solution equals the course code.
+tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, text=True, capture_output=True, check=True).stdout.split()
+for name in tracked:
+    path = ROOT / name
+    if path.suffix in (".jl", ".md", ".py", ".html", ".toml", ".yml", ".txt") and path.is_file():
+        # The pattern is split so that this file does not match itself.
+        found = re.search(r"L1" r"4a|week" r"-14|matches the course" r" package", path.read_text(errors="ignore"))
+        assert found is None, f"{name} names course material: {found.group(0)}"
+
 names = lambda text: set(re.findall(r'"([a-z-]+\.(?:csv|png))"', text))
 reporting = (ROOT / "src/Reporting.jl").read_text()
 assert names(reporting.split("const REPORT_FILES", 1)[1].split("];", 1)[0]) == REPORTS
 checker = (ROOT / "check_submission.jl").read_text()
 assert names(checker.split("Remove earlier reports", 1)[1].split("end", 1)[0]) == REPORTS
 
+# Every package shared with the course environment must have the course version (the script skips
+# if the course repository is missing).
+output = run(ROOT, "course-versions", 0, script="instructor/check_versions.jl")
+assert "All shared packages match" in output or "skipping" in output, output
+# The cross-check is a local, Git-ignored file; the solution README describes it.
+if (ROOT / "instructor/check_against_course.jl").is_file():
+    output = run(ROOT, "course-cross-check", 0, script="instructor/check_against_course.jl")
+    assert "course cross-check |    4      4" in output or "skipping" in output, output
+else:
+    print("instructor/check_against_course.jl not found; skipping the course cross-check.")
 run(ROOT, "supplied-checks", 0, script="instructor/test_supplied.jl")
 run(ROOT, "supplied-checks-solution", 0, script="instructor/test_supplied.jl", args=("--solution",))
 # The direct instructor mode must preserve student files and their output files.
@@ -121,7 +141,7 @@ partial = stage()
 source = (ROOT / "solution/src/Compute.jl").read_text()
 start = source.index("function simulate")
 source = (source[:start] + 'function simulate(network::MyGeneNetwork, x0::Array{Float64,1}, pulses::Array{Tuple{Float64,Float64,Float64},1};\n'
-          '    Δt::Float64, T::Float64)::NamedTuple\n'
+          '    T::Float64)::NamedTuple\n'
           '    error("unfinished simulate");\nend\n')
 (partial / "src/Compute.jl").write_text(source)
 # Earlier reports must not survive a failing run; other files in outputs/ stay.

@@ -1,6 +1,9 @@
 # ----------------------------------------------------------------------------
-# Supplied network code | Read a gene network from a TOML file and build its model.
+# Supplied network code | Read a gene network from a TOML file.
 # ----------------------------------------------------------------------------
+
+# The gas constant R (kJ/mol/K), for the weight W = exp(−dG/RT) of each promoter state -
+const GAS_CONSTANT = 8.314462618e-3;
 
 """
     MyBoundRegulator
@@ -9,8 +12,8 @@ One regulator bound in a promoter state.
 
 ### Fields
 - `regulator::String`: the name of the gene whose protein binds, such as `"X"`.
-- `K::Float64`: the level of the available regulator at which half of the promoters have it
-  bound (nmol/gDW).
+- `K::Float64`: the available regulator level at which the bound fraction is one half
+  (nmol/gDW).
 - `n::Float64`: the binding order (dimensionless).
 - `inducer::Bool`: `true` when the inducer I sets the fraction of the regulator that can bind.
 - `K_I::Float64`: the inducer concentration at which half of the regulator carries the inducer
@@ -32,12 +35,14 @@ end
 One state of a gene's promoter.
 
 ### Fields
-- `W::Float64`: the weight of the state when its regulators are fully bound (dimensionless).
+- `dG::Float64`: the Gibbs energy of the state relative to the empty promoter (kJ/mol).
+- `W::Float64`: the weight of the state, `exp(−dG/RT)` (dimensionless).
 - `active::Bool`: `true` when RNA polymerase transcribes the gene in this state.
 - `bound::Array{MyBoundRegulator,1}`: the regulators bound in this state. A state with no bound
   regulators, such as RNA polymerase bound alone, has an empty list.
 """
 struct MyPromoterState
+    dG::Float64
     W::Float64
     active::Bool
     bound::Array{MyBoundRegulator,1}
@@ -50,15 +55,20 @@ One gene of the network.
 
 ### Fields
 - `name::String`: the gene name, such as `"Y"`.
-- `Vmax_X::Float64`: the transcription rate when the gene is fully on (nmol/gDW/min).
-- `k_L::Float64`: the translation rate constant: proteins made per mRNA per minute (1/min).
-- `promoter::Array{MyPromoterState,1}`: the promoter states. A gene with no promoter states is
-  always transcribed at `Vmax_X`.
+- `G::Float64`: the gene level (nmol/gDW).
+- `Vmax_X::Float64`: the transcription kinetic limit (nmol/gDW/min).
+- `K_X::Float64`: the transcription saturation constant (nmol/gDW).
+- `Vmax_L::Float64`: the translation kinetic limit (nmol/gDW/min).
+- `K_L::Float64`: the translation saturation constant (nmol/gDW).
+- `promoter::Array{MyPromoterState,1}`: the promoter states, without the empty promoter.
 """
 struct MyGene
     name::String
+    G::Float64
     Vmax_X::Float64
-    k_L::Float64
+    K_X::Float64
+    Vmax_L::Float64
+    K_L::Float64
     promoter::Array{MyPromoterState,1}
 end
 
@@ -72,6 +82,7 @@ A gene network read from a TOML file by `load_network`.
 - `genes::Array{MyGene,1}`: the genes, in file order. Gene `j` has mRNA state `j` and protein
   state `N + j`, where `N` is the number of genes.
 - `index::Dict{String,Int64}`: the position of each gene, by name.
+- `temperature::Float64`: the absolute temperature (K).
 - `θ_m::Float64`, `θ_p::Float64`: the degradation rate constants of mRNA and protein (1/min).
 - `μ::Float64`: the growth rate (1/min). Growth dilutes mRNA and protein at this rate.
 """
@@ -79,6 +90,7 @@ struct MyGeneNetwork
     description::String
     genes::Array{MyGene,1}
     index::Dict{String,Int64}
+    temperature::Float64
     θ_m::Float64
     θ_p::Float64
     μ::Float64
@@ -125,17 +137,20 @@ end
 Read a gene network from the TOML file at `path`, such as `data/memory.toml`.
 
 The file has a `[parameters]` table with `mRNA_half_life`, `protein_half_life`, and
-`doubling_time` (min), and one `[[genes]]` entry per gene with `name`, `Vmax_X`, and `k_L`. Each
-gene lists its promoter states as `[[genes.promoter]]` entries with `W` and `active`, and each
+`doubling_time` (min), and `temperature` (K). Each `[[genes]]` entry has `name`, `G`, `Vmax_X`,
+`K_X`, `Vmax_L`, and `K_L`, and lists its promoter states as `[[genes.promoter]]` entries with
+`dG` (kJ/mol) and `active`. The loader stores the weight `W = exp(−dG/RT)` of each state. Each
 state lists its bound regulators as `[[genes.promoter.bound]]` entries with `regulator`, `K`, and
 `n`. A bound regulator that carries the inducer also has `inducer = "I"`,
-`inducer_effect = "activates"`, `K_I`, and `n_I`.
+`inducer_effect = "activates"`, `K_I`, and `n_I`, and the file then needs an `[inputs.I]` table
+with `initial = 0.0`, because there is no inducer before the first pulse.
 
 ### Errors
-Throws an `ArgumentError` that names the field if a field is missing, if a half-life or the
-doubling time is not positive, if a gene name appears twice, if a state names a regulator that
-is not a gene of the network, or if a bound regulator names an inducer other than `"I"` or an
-effect other than `"activates"`.
+Throws an `ArgumentError` that names the field if a field is missing, if a half-life, the doubling
+time, or the temperature is not positive, if a gene name appears twice, if a state names a
+regulator that is not a gene of the network, if a bound regulator names an inducer other than
+`"I"` or an effect other than `"activates"`, or if the file has no `[inputs.I]` table with
+`initial = 0.0` when a regulator carries the inducer.
 
 ### Example
 ```julia
@@ -164,6 +179,13 @@ function load_network(path::String)::MyGeneNetwork
     doubling_time = Float64(required_value(parameters, "doubling_time", "[parameters]"));
     μ = rate_from_half_life(doubling_time, "doubling_time");
 
+    # The temperature (K) and the thermal energy RT (kJ/mol), for the weights of the states -
+    temperature = Float64(required_value(parameters, "temperature", "[parameters]"));
+    if isfinite(temperature) == false || temperature <= 0.0
+        throw(ArgumentError("temperature in [parameters] must be a positive number (K), got $temperature"));
+    end
+    RT = GAS_CONSTANT * temperature;
+
     # First pass: the gene names and their positions, so that a state can name any gene -
     gene_tables = required_value(data, "genes", "the file");
     index = Dict{String,Int64}();
@@ -177,18 +199,24 @@ function load_network(path::String)::MyGeneNetwork
 
     # Second pass: build each gene with its promoter states -
     genes = MyGene[];
+    uses_inducer = false;
     for j in 1:length(gene_tables)
         table = gene_tables[j];
         name = string(table["name"]);
-        Vmax_X = Float64(required_value(table, "Vmax_X", "gene \"$name\""));
-        k_L = Float64(required_value(table, "k_L", "gene \"$name\""));
+        location = "gene \"$name\"";
+        G = Float64(required_value(table, "G", location));
+        Vmax_X = Float64(required_value(table, "Vmax_X", location));
+        K_X = Float64(required_value(table, "K_X", location));
+        Vmax_L = Float64(required_value(table, "Vmax_L", location));
+        K_L = Float64(required_value(table, "K_L", location));
 
-        # The promoter states; a gene without any is always transcribed at Vmax_X -
+        # The promoter states, each with its weight W = exp(−dG/RT) -
         states = MyPromoterState[];
         state_tables = get(table, "promoter", Dict{String,Any}[]);
         for s in 1:length(state_tables)
             location = "promoter state $s of gene \"$name\"";
-            W = Float64(required_value(state_tables[s], "W", location));
+            dG = Float64(required_value(state_tables[s], "dG", location));
+            W = exp(-dG / RT);
             active = Bool(required_value(state_tables[s], "active", location));
 
             # The regulators bound in this state -
@@ -217,62 +245,36 @@ function load_network(path::String)::MyGeneNetwork
                     end
                     K_I = Float64(required_value(entry, "K_I", location));
                     n_I = Float64(required_value(entry, "n_I", location));
+                    uses_inducer = true;
                 end
                 push!(bound, MyBoundRegulator(regulator, K, n, has_inducer, K_I, n_I));
             end
-            push!(states, MyPromoterState(W, active, bound));
+            push!(states, MyPromoterState(dG, W, active, bound));
         end
-        push!(genes, MyGene(name, Vmax_X, k_L, states));
+        push!(genes, MyGene(name, G, Vmax_X, K_X, Vmax_L, K_L, states));
+    end
+
+    # A regulator that carries the inducer needs the [inputs.I] table, with no inducer at the start -
+    if uses_inducer == true
+        if haskey(data, "inputs") == false || haskey(data["inputs"], "I") == false
+            throw(ArgumentError("a regulator carries the inducer \"I\", so the file needs an [inputs.I] table with initial = 0.0"));
+        end
+        initial = Float64(required_value(data["inputs"]["I"], "initial", "[inputs.I]"));
+        if initial != 0.0
+            throw(ArgumentError("initial in [inputs.I] must be 0.0, got $initial, because there is no inducer before the first pulse"));
+        end
     end
 
     # Return the network -
-    return MyGeneNetwork(description, genes, index, θ_m, θ_p, μ);
-end
-
-"""
-    state_matrices(network::MyGeneNetwork) -> Tuple{Array{Float64,2},Array{Float64,2}}
-
-Return the matrices `A` and `B` of the state space model `dx/dt = A x + B u`, where the state `x`
-lists the mRNA levels of the `N` genes, then their protein levels, and the input `u` lists the
-control of each gene's transcription.
-
-### Returns
-- `A::Array{Float64,2}` (`2N × 2N`): each mRNA is lost at the rate `θ_m + μ`, each protein is made
-  from its mRNA at the rate `k_L` and lost at the rate `θ_p + μ`.
-- `B::Array{Float64,2}` (`2N × N`): gene `j` is transcribed at `Vmax_X` times its control, so
-  `B[j, j] = Vmax_X` of gene `j`; every other entry is zero.
-
-### Example
-```julia
-network = load_network(joinpath("data", "memory.toml"));
-(A, B) = state_matrices(network); # A is 6 × 6 and B is 6 × 3
-```
-"""
-function state_matrices(network::MyGeneNetwork)::Tuple{Array{Float64,2},Array{Float64,2}}
-
-    # Sizes -
-    N = length(network.genes);
-    A = zeros(2 * N, 2 * N);
-    B = zeros(2 * N, N);
-
-    # Fill in each gene's mRNA and protein rows -
-    for j in 1:N
-        gene = network.genes[j];
-        A[j, j] = -(network.θ_m + network.μ);     # mRNA lost to degradation and dilution
-        A[N + j, j] = gene.k_L;                     # protein made from its mRNA
-        A[N + j, N + j] = -(network.θ_p + network.μ); # protein lost to degradation and dilution
-        B[j, j] = gene.Vmax_X;                      # transcription, scaled by the control
-    end
-
-    # Return the pair -
-    return (A, B);
+    return MyGeneNetwork(description, genes, index, temperature, θ_m, θ_p, μ);
 end
 
 """
     bound_fraction(network::MyGeneNetwork, b::MyBoundRegulator, x::Array{Float64,1}, I::Float64) -> Float64
 
-Return the fraction of promoters that have the regulator `b` bound, `aⁿ / (Kⁿ + aⁿ)`, at the state
-`x` and the inducer concentration `I` (µM).
+Return the bound fraction `aⁿ / (Kⁿ + aⁿ)` of the regulator `b` at the state `x` and the inducer
+concentration `I` (µM). The bound fraction multiplies the weight of each promoter state that
+lists `b`.
 
 The available level `a` is the protein level of the regulator, read from `x`. When the regulator
 carries the inducer (`b.inducer` is `true`), only the fraction of the protein that carries the
@@ -286,7 +288,8 @@ Throws an `ArgumentError` if `I` is negative.
 ```julia
 network = load_network(joinpath("data", "memory.toml"));
 b = network.genes[2].promoter[3].bound[1]; # protein Z bound to the promoter of Y
-x = [0.0, 0.0, 0.0, 0.0, 0.0, 3.0];         # protein Z at its half-binding level
+x = zeros(6);
+x[6] = b.K;                                 # protein Z at the level K
 f = bound_fraction(network, b, x, 0.0);     # 0.5
 ```
 """

@@ -25,8 +25,8 @@ Keep the inline styles: they carry the code colors and gray backgrounds into Can
   sample ever contained a chemical signal. The sensor cells carry a three-gene
   memory circuit: a pulse of the signal molecule switches on two genes, and the
   genes stay on after the signal is gone. You will write the control of a gene
-  from its promoter states, the bilinear discretization of a state space model,
-  and the recursion that simulates the circuit. You will then find how long the
+  from its promoter states and the mRNA and protein balances of the circuit, and
+  you will solve the balances with an ODE solver. You will then find how long the
   signal must last for the cells to remember it.
 </p>
 
@@ -53,8 +53,8 @@ Keep the inline styles: they carry the code colors and gray backgrounds into Can
 <p>
   On the release page, scroll to <strong>Assets</strong> and select
   <strong>Source code (zip)</strong>. Extract the archive completely before beginning.
-  This problem set is supported with Julia 1.12.7 and uses the Plots package,
-  which the first command below installs.
+  This problem set is supported with Julia 1.12.7 and uses the OrdinaryDiffEq and
+  Plots packages, which the first command below installs.
 </p>
 
 <h3>What to do</h3>
@@ -62,7 +62,7 @@ Keep the inline styles: they carry the code colors and gray backgrounds into Can
 <ul>
   <li>
     Complete the three functions in <code style="color: #c7254e; background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; font-family: Menlo, Monaco, Consolas, 'Courier New', monospace; font-size: 90%;">src/Compute.jl</code>: Part 1
-    (<code style="color: #c7254e; background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; font-family: Menlo, Monaco, Consolas, 'Courier New', monospace; font-size: 90%;">control</code> and <code style="color: #c7254e; background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; font-family: Menlo, Monaco, Consolas, 'Courier New', monospace; font-size: 90%;">discretize</code>) and Part 2
+    (<code style="color: #c7254e; background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; font-family: Menlo, Monaco, Consolas, 'Courier New', monospace; font-size: 90%;">control</code> and <code style="color: #c7254e; background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; font-family: Menlo, Monaco, Consolas, 'Courier New', monospace; font-size: 90%;">balances!</code>) and Part 2
     (<code style="color: #c7254e; background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; font-family: Menlo, Monaco, Consolas, 'Courier New', monospace; font-size: 90%;">simulate</code>).
   </li>
   <li>
